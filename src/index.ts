@@ -56,10 +56,13 @@ async function verifyPassword(password: string, salt: string, expectedHash: stri
 
 // ---------------- signed session cookie ----------------
 
+// role "client" sessions carry a clientId (used to scope every ArcGIS
+// query); role "pm" sessions have full visibility and no clientId.
 interface SessionPayload {
-  clientLoginId: string;
-  clientId: string;
-  clientName: string;
+  role: "client" | "pm";
+  loginId: string;
+  displayName: string;
+  clientId?: string;
   exp: number;
 }
 
@@ -182,9 +185,10 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   const sessionSecret = await env.SESSION_SECRET.get();
   const session = await signSession(
     {
-      clientLoginId: row.id,
+      role: "client",
+      loginId: row.id,
+      displayName: row.client_name,
       clientId: row.client_id,
-      clientName: row.client_name,
       exp: Math.floor(Date.now() / 1000) + 60 * 60 * 8
     },
     sessionSecret
@@ -192,6 +196,47 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 
   return json(
     { clientName: row.client_name },
+    200,
+    { "Set-Cookie": `session=${encodeURIComponent(session)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800` }
+  );
+}
+
+async function handlePmLogin(request: Request, env: Env): Promise<Response> {
+  let body: { username?: string; password?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid request body." }, 400);
+  }
+
+  const username = (body.username || "").trim().toLowerCase();
+  const password = body.password || "";
+  if (!username || !password) {
+    return json({ error: "Username and password are required." }, 400);
+  }
+
+  const row = await env.DB
+    .prepare("SELECT id, password_hash, salt, display_name FROM pm_users WHERE id = ?")
+    .bind(username)
+    .first<{ id: string; password_hash: string; salt: string; display_name: string }>();
+
+  if (!row || !(await verifyPassword(password, row.salt, row.password_hash))) {
+    return json({ error: "Incorrect username or password." }, 401);
+  }
+
+  const sessionSecret = await env.SESSION_SECRET.get();
+  const session = await signSession(
+    {
+      role: "pm",
+      loginId: row.id,
+      displayName: row.display_name,
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 8
+    },
+    sessionSecret
+  );
+
+  return json(
+    { displayName: row.display_name },
     200,
     { "Set-Cookie": `session=${encodeURIComponent(session)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800` }
   );
@@ -205,13 +250,33 @@ async function handleProperties(request: Request, env: Env): Promise<Response> {
   const cookie = getCookie(request, "session");
   const sessionSecret = await env.SESSION_SECRET.get();
   const session = cookie ? await verifySession(cookie, sessionSecret) : null;
-  if (!session) return json({ error: "Not signed in." }, 401);
+  if (!session || session.role !== "client" || !session.clientId) return json({ error: "Not signed in." }, 401);
 
   try {
     const units = await queryUnitsForClient(env, session.clientId);
-    return json({ clientName: session.clientName, units });
+    return json({ clientName: session.displayName, units });
   } catch (err: any) {
     return json({ error: "Could not load properties.", detail: String(err?.message || err) }, 502);
+  }
+}
+
+// Issues a short-lived ArcGIS access token to an already-authenticated PM
+// session, so the map page (running the ArcGIS Maps SDK for JavaScript in
+// the browser) can query the Structures/Units/Floors layers directly.
+// The client_secret itself never leaves the Worker -- only the resulting
+// token, which expires on its own and can only query what this OAuth app
+// was scoped to (the Units FeatureServer item), does.
+async function handlePmToken(request: Request, env: Env): Promise<Response> {
+  const cookie = getCookie(request, "session");
+  const sessionSecret = await env.SESSION_SECRET.get();
+  const session = cookie ? await verifySession(cookie, sessionSecret) : null;
+  if (!session || session.role !== "pm") return json({ error: "Not signed in." }, 401);
+
+  try {
+    const token = await getArcgisToken(env);
+    return json({ token, displayName: session.displayName, layerUrl: env.ARCGIS_LAYER_URL });
+  } catch (err: any) {
+    return json({ error: "Could not get ArcGIS token.", detail: String(err?.message || err) }, 502);
   }
 }
 
@@ -224,6 +289,9 @@ export default {
     if (url.pathname === "/api/login" && request.method === "POST") return handleLogin(request, env);
     if (url.pathname === "/api/logout" && request.method === "POST") return handleLogout();
     if (url.pathname === "/api/properties" && request.method === "GET") return handleProperties(request, env);
+    if (url.pathname === "/api/pm/login" && request.method === "POST") return handlePmLogin(request, env);
+    if (url.pathname === "/api/pm/logout" && request.method === "POST") return handleLogout();
+    if (url.pathname === "/api/pm/token" && request.method === "GET") return handlePmToken(request, env);
 
     // Anything else falls through to the static files in public/
     return env.ASSETS.fetch(request);
