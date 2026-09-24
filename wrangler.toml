@@ -6,8 +6,18 @@ compatibility_date = "2026-09-01"
 directory = "public"
 binding = "ASSETS"
 
-# Created via the Cloudflare dashboard: Storage & databases -> D1.
+# Created via the Cloudflare dashboard: Compute -> Storage & databases -> D1.
+# Replace database_id with the id shown on that database's Overview page.
 [[d1_databases]]
 binding = "DB"
 database_name = "layered_insights_portal"
 database_id = "9b878074-b10d-4680-84ba-1b34ca560bae"
+
+# Non-secret values only -- this repo is public. ARCGIS_CLIENT_SECRET and
+# SESSION_SECRET must NOT go here; they're bound via Cloudflare's Secrets
+# Store instead (dashboard: Worker -> Overview -> Add a binding -> Secrets
+# Store), since the trial ArcGIS org can't issue API keys and this repo
+# has no private place to hide a plain-text secret.
+[vars]
+ARCGIS_CLIENT_ID = "MnvmzTtJVZv9dvyf"
+ARCGIS_LAYER_URL = "https://services8.arcgis.com/36XL3b77TZDgZiaL/arcgis/rest/services/Units/FeatureServer/1"
