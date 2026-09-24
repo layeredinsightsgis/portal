@@ -122,7 +122,12 @@ async function getArcgisToken(env: Env): Promise<string> {
 
   if (!res.ok) throw new Error(`ArcGIS token request failed with status ${res.status}`);
   const data: any = await res.json();
-  if (data.error) throw new Error(data.error_description || data.error || "ArcGIS token request returned an error.");
+  if (data.error) {
+    const message =
+      data.error_description ||
+      (typeof data.error === "string" ? data.error : JSON.stringify(data.error));
+    throw new Error(`ArcGIS token request returned an error: ${message}`);
+  }
   return data.access_token;
 }
 
