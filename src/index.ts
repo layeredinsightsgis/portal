@@ -11,7 +11,8 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   SESSION_SECRET: string;
-  ARCGIS_API_KEY: string;
+  ARCGIS_CLIENT_ID: string;
+  ARCGIS_CLIENT_SECRET: string;
   ARCGIS_LAYER_URL: string;
 }
 
@@ -89,14 +90,42 @@ function getCookie(request: Request, name: string): string | null {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : null;
 }
 
-// ---------------- ArcGIS REST query, always scoped by ClientID ----------------
+// ---------------- ArcGIS OAuth token + REST query, always scoped by ClientID ----------------
+
+// The trial org can't issue static API keys, so we use an OAuth 2.0
+// "app authentication" (client_credentials) app instead. That means
+// fetching a short-lived access token before each query rather than
+// using one long-lived key. No caching yet -- traffic is low enough
+// that a fresh token per request is fine; worth revisiting with a
+// cached/shared token (e.g. in a KV or Durable Object) if volume grows.
+async function getArcgisToken(env: Env): Promise<string> {
+  const body = new URLSearchParams({
+    client_id: env.ARCGIS_CLIENT_ID,
+    client_secret: env.ARCGIS_CLIENT_SECRET,
+    grant_type: "client_credentials",
+    f: "json"
+  });
+
+  const res = await fetch("https://www.arcgis.com/sharing/rest/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString()
+  });
+
+  if (!res.ok) throw new Error(`ArcGIS token request failed with status ${res.status}`);
+  const data: any = await res.json();
+  if (data.error) throw new Error(data.error_description || data.error || "ArcGIS token request returned an error.");
+  return data.access_token;
+}
 
 async function queryUnitsForClient(env: Env, clientId: string): Promise<any[]> {
+  const token = await getArcgisToken(env);
+
   const url = new URL(env.ARCGIS_LAYER_URL.replace(/\/$/, "") + "/query");
   url.searchParams.set("where", `ClientID='${clientId.replace(/'/g, "''")}'`);
   url.searchParams.set("outFields", "*");
   url.searchParams.set("f", "json");
-  url.searchParams.set("token", env.ARCGIS_API_KEY);
+  url.searchParams.set("token", token);
 
   const res = await fetch(url.toString());
   if (!res.ok) throw new Error(`ArcGIS query failed with status ${res.status}`);
