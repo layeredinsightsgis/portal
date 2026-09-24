@@ -14,3 +14,12 @@ CREATE TABLE IF NOT EXISTS clients (
   client_id     TEXT NOT NULL,      -- the GIS ClientID GUID, e.g. {XXXXXXXX-XXXX-...}
   client_name   TEXT NOT NULL       -- display name shown in the portal header
 );
+
+-- Property manager logins -- a separate table (not a flag on `clients`)
+-- since PM accounts aren't scoped to one ClientID and see everything.
+CREATE TABLE IF NOT EXISTS pm_users (
+  id            TEXT PRIMARY KEY,   -- login username, e.g. "pm"
+  password_hash TEXT NOT NULL,
+  salt          TEXT NOT NULL,
+  display_name  TEXT NOT NULL       -- shown in the map page header
+);
