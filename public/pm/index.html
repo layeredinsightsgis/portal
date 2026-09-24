@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layered Insights GIS — PM Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>
+  :root{
+    --ink:#1c231f; --ink-faint:#6b756e; --surface:#fff; --bg:#f4f5f3;
+    --line:#e2e5e0; --accent:#2f6f5e; --accent-ink:#fff;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%; margin:0;}
+  body{
+    font-family:'Public Sans',system-ui,sans-serif; color:var(--ink); background:var(--bg);
+    display:flex; flex-direction:column;
+  }
+  h1,h2{font-family:'Fraunces',serif; font-weight:600; margin:0;}
+  header{
+    background:var(--surface); border-bottom:1px solid var(--line); padding:14px 20px;
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-shrink:0;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand-mark{
+    width:34px; height:34px; border-radius:9px; background:var(--accent); color:var(--accent-ink);
+    display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:600; font-size:15px;
+  }
+  .brand-text{display:flex; flex-direction:column; line-height:1.2;}
+  .brand-text .name{font-family:'Fraunces',serif; font-weight:600; font-size:16px;}
+  .brand-text .sub{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint);}
+  .session{display:flex; align-items:center; gap:14px; font-size:14px;}
+  button{
+    font-family:inherit; font-size:14px; font-weight:600; border-radius:8px; cursor:pointer; border:1px solid var(--line);
+    background:var(--surface); color:var(--ink); padding:8px 14px;
+  }
+  button.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); width:100%;}
+  [hidden]{display:none !important;}
+
+  /* ---- login ---- */
+  #loginView{flex:1; display:flex; align-items:center; justify-content:center; padding:24px;}
+  .login-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:32px;
+    width:100%; max-width:360px;
+  }
+  .login-card h1{font-size:22px; margin-bottom:6px;}
+  .login-card p{color:var(--ink-faint); font-size:14px; margin:0 0 20px;}
+  label{display:block; font-size:12px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px;}
+  input{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:15px;
+    font-family:inherit; margin-bottom:16px; background:var(--bg);
+  }
+  #loginError{color:#b3413a; font-size:13px; min-height:18px; margin-top:6px;}
+
+  /* ---- map view ---- */
+  #mapView{flex:1; display:flex; min-height:0;}
+  #sidebar{
+    width:260px; flex-shrink:0; background:var(--surface); border-right:1px solid var(--line);
+    overflow-y:auto; padding:16px;
+  }
+  #sidebar h2{font-size:14px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:10px;}
+  .bookmark-btn{
+    display:block; width:100%; text-align:left; background:var(--bg); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:13px; cursor:pointer;
+  }
+  .bookmark-btn:hover{border-color:var(--accent);}
+  .bookmark-btn .b-name{display:block; font-weight:600; margin-bottom:2px;}
+  .bookmark-btn .b-addr{display:block; color:var(--ink-faint); font-size:12px;}
+  #mapContainer{flex:1; position:relative;}
+  #mapStatus{
+    position:absolute; top:12px; left:12px; z-index:10; background:var(--surface); border:1px solid var(--line);
+    border-radius:8px; padding:8px 12px; font-size:13px; color:var(--ink-faint);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">LI</div>
+    <div class="brand-text">
+      <span class="name">Layered Insights GIS</span>
+      <span class="sub">Property Manager</span>
+    </div>
+  </div>
+  <div class="session" id="sessionBar" hidden>
+    <span id="pmName"></span>
+    <button id="logoutBtn">Sign out</button>
+  </div>
+</header>
+
+<section id="loginView">
+  <div class="login-card">
+    <h1>PM Sign in</h1>
+    <p>View and manage all properties on the map.</p>
+    <form id="loginForm">
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+      <button type="submit" class="primary">Sign in</button>
+      <div id="loginError"></div>
+    </form>
+  </div>
+</section>
+
+<section id="mapView" hidden>
+  <div id="sidebar">
+    <h2>Properties</h2>
+    <div id="bookmarkList">Loading…</div>
+  </div>
+  <div id="mapContainer">
+    <div id="mapStatus" hidden></div>
+  </div>
+</section>
+
+<script src="https://js.arcgis.com/4.30/"></script>
+<script>
+(function(){
+  var loginView = document.getElementById('loginView');
+  var mapView = document.getElementById('mapView');
+  var sessionBar = document.getElementById('sessionBar');
+  var pmName = document.getElementById('pmName');
+  var loginForm = document.getElementById('loginForm');
+  var loginError = document.getElementById('loginError');
+  var bookmarkList = document.getElementById('bookmarkList');
+  var mapStatus = document.getElementById('mapStatus');
+
+  var view = null; // set once the map initializes
+
+  function showLoggedOut(){
+    sessionBar.hidden = true;
+    mapView.hidden = true;
+    loginView.hidden = false;
+  }
+
+  function showMapStatus(msg){
+    mapStatus.hidden = false;
+    mapStatus.textContent = msg;
+  }
+  function hideMapStatus(){
+    mapStatus.hidden = true;
+  }
+
+  function initMap(token, layerUrl, displayName){
+    sessionBar.hidden = false;
+    loginView.hidden = true;
+    mapView.hidden = false;
+    pmName.textContent = displayName;
+
+    require([
+      "esri/config",
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/layers/FeatureLayer"
+    ], function(esriConfig, Map, MapView, FeatureLayer){
+
+      // A single app token, good for both the basemap styles service and
+      // the private Units/Structures/Floors feature layers -- this
+      // OAuth app (client_credentials) was granted access to exactly
+      // that one item, so the token is scoped the same way here.
+      esriConfig.apiKey = token;
+
+      // layerUrl points at the Units sub-layer (".../FeatureServer/1");
+      // Structures and Floors are sibling sub-layers of the same service.
+      var baseUrl = layerUrl.replace(/\/\d+\/?$/, "");
+
+      var structuresLayer = new FeatureLayer({
+        url: baseUrl + "/0",
+        title: "Structures",
+        outFields: ["*"],
+        popupTemplate: {
+          title: "{StructureName}",
+          content: "Address: {Address}<br>Structure ID: {StructureID}"
+        }
+      });
+
+      var unitsLayer = new FeatureLayer({
+        url: baseUrl + "/1",
+        title: "Units",
+        outFields: ["*"],
+        popupTemplate: {
+          title: "Unit {UnitNumber} — {UnitName}",
+          content: "Status: {Status}<br>Sq Ft: {SqFt}<br>Client ID: {ClientID}"
+        }
+      });
+
+      var floorsLayer = new FeatureLayer({
+        url: baseUrl + "/2",
+        title: "Floors",
+        outFields: ["*"],
+        visible: false // shown when zoomed in close; toggled below
+      });
+
+      var map = new Map({
+        basemap: "arcgis/topographic",
+        layers: [structuresLayer, floorsLayer, unitsLayer]
+      });
+
+      view = new MapView({
+        container: "mapContainer",
+        map: map,
+        zoom: 4,
+        center: [-83.98, 34.53] // Dahlonega, GA area -- reasonable default
+      });
+
+      // Reveal Floors detail only once zoomed in past a building-scale extent.
+      view.watch("scale", function(scale){
+        floorsLayer.visible = scale < 5000;
+      });
+
+      showMapStatus("Loading properties…");
+
+      view.when(function(){
+        return structuresLayer.queryFeatures({
+          where: "1=1",
+          outFields: ["*"],
+          returnGeometry: true
+        });
+      }).then(function(result){
+        hideMapStatus();
+        bookmarkList.innerHTML = "";
+
+        if (!result.features.length){
+          bookmarkList.textContent = "No structures found.";
+          return;
+        }
+
+        result.features.forEach(function(feature){
+          var attrs = feature.attributes;
+          var name = attrs.StructureName || ("Structure " + attrs.StructureID);
+          var addr = attrs.Address || "";
+
+          var btn = document.createElement("button");
+          btn.className = "bookmark-btn";
+          btn.innerHTML =
+            '<span class="b-name"></span><span class="b-addr"></span>';
+          btn.querySelector(".b-name").textContent = name;
+          btn.querySelector(".b-addr").textContent = addr;
+
+          btn.addEventListener("click", function(){
+            if (feature.geometry && feature.geometry.extent){
+              view.goTo(feature.geometry.extent.expand(1.8));
+            } else {
+              view.goTo(feature.geometry);
+            }
+          });
+
+          bookmarkList.appendChild(btn);
+        });
+
+        // Zoom to the full extent of all structures on first load.
+        return structuresLayer.queryExtent();
+      }).then(function(extentResult){
+        if (extentResult && extentResult.extent){
+          view.goTo(extentResult.extent.expand(1.3));
+        }
+      }).catch(function(err){
+        showMapStatus("Could not load properties: " + (err && err.message ? err.message : err));
+      });
+    });
+  }
+
+  function loadPmSession(){
+    fetch('/api/pm/token', { credentials: 'same-origin' })
+      .then(function(res){
+        if (res.status === 401) { showLoggedOut(); return null; }
+        return res.json();
+      })
+      .then(function(data){
+        if (!data) return;
+        if (data.error) { showLoggedOut(); return; }
+        initMap(data.token, data.layerUrl, data.displayName);
+      })
+      .catch(function(){ showLoggedOut(); });
+  }
+
+  loginForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    loginError.textContent = '';
+    var username = document.getElementById('username').value;
+    var password = document.getElementById('password').value;
+
+    fetch('/api/pm/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password })
+    })
+      .then(function(res){ return res.json().then(function(data){ return { ok: res.ok, data: data }; }); })
+      .then(function(result){
+        if (!result.ok){
+          loginError.textContent = result.data.error || 'Sign in failed.';
+          return;
+        }
+        loadPmSession();
+      })
+      .catch(function(){ loginError.textContent = 'Could not reach the server. Try again.'; });
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', function(){
+    fetch('/api/pm/logout', { method: 'POST', credentials: 'same-origin' }).then(function(){
+      location.reload();
+    });
+  });
+
+  // On load, see if there's already a valid PM session.
+  loadPmSession();
+})();
+</script>
+</body>
+</html>
