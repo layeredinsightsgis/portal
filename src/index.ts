@@ -7,12 +7,19 @@
 // itself and serves static files via the ASSETS binding, rather than
 // Pages' automatic file-based routing.
 
+// Secrets Store bindings expose the value through an async .get() call,
+// not as a plain string -- unlike ARCGIS_CLIENT_ID/ARCGIS_LAYER_URL below,
+// which are plain [vars] in wrangler.toml since they aren't sensitive.
+interface SecretsStoreSecret {
+  get(): Promise<string>;
+}
+
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
-  SESSION_SECRET: string;
+  SESSION_SECRET: SecretsStoreSecret;
   ARCGIS_CLIENT_ID: string;
-  ARCGIS_CLIENT_SECRET: string;
+  ARCGIS_CLIENT_SECRET: SecretsStoreSecret;
   ARCGIS_LAYER_URL: string;
 }
 
@@ -99,9 +106,10 @@ function getCookie(request: Request, name: string): string | null {
 // that a fresh token per request is fine; worth revisiting with a
 // cached/shared token (e.g. in a KV or Durable Object) if volume grows.
 async function getArcgisToken(env: Env): Promise<string> {
+  const clientSecret = await env.ARCGIS_CLIENT_SECRET.get();
   const body = new URLSearchParams({
     client_id: env.ARCGIS_CLIENT_ID,
-    client_secret: env.ARCGIS_CLIENT_SECRET,
+    client_secret: clientSecret,
     grant_type: "client_credentials",
     f: "json"
   });
@@ -166,6 +174,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     return json({ error: "Incorrect username or password." }, 401);
   }
 
+  const sessionSecret = await env.SESSION_SECRET.get();
   const session = await signSession(
     {
       clientLoginId: row.id,
@@ -173,7 +182,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
       clientName: row.client_name,
       exp: Math.floor(Date.now() / 1000) + 60 * 60 * 8
     },
-    env.SESSION_SECRET
+    sessionSecret
   );
 
   return json(
@@ -189,7 +198,8 @@ async function handleLogout(): Promise<Response> {
 
 async function handleProperties(request: Request, env: Env): Promise<Response> {
   const cookie = getCookie(request, "session");
-  const session = cookie ? await verifySession(cookie, env.SESSION_SECRET) : null;
+  const sessionSecret = await env.SESSION_SECRET.get();
+  const session = cookie ? await verifySession(cookie, sessionSecret) : null;
   if (!session) return json({ error: "Not signed in." }, 401);
 
   try {
