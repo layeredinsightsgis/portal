@@ -107,6 +107,12 @@ function getCookie(request: Request, name: string): string | null {
 // cached/shared token (e.g. in a KV or Durable Object) if volume grows.
 async function getArcgisToken(env: Env): Promise<string> {
   const clientSecret = await env.ARCGIS_CLIENT_SECRET.get();
+  // TEMPORARY DIAGNOSTIC -- remove once the "Invalid client_secret" issue
+  // is resolved. Logs length/edges only, never the full secret.
+  console.log(
+    `[diag] client_id="${env.ARCGIS_CLIENT_ID}" (len ${env.ARCGIS_CLIENT_ID.length}), ` +
+    `client_secret len=${clientSecret.length}, starts="${clientSecret.slice(0, 4)}", ends="${clientSecret.slice(-4)}"`
+  );
   const body = new URLSearchParams({
     client_id: env.ARCGIS_CLIENT_ID,
     client_secret: clientSecret,
