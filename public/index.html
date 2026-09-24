@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Layered Insights GIS — Client Portal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ink:#16202B; --ink-soft:#54626E; --ink-faint:#8996A1;
+    --paper:#F5F7F6; --surface:#FFFFFF; --line:#D9E0DF;
+    --accent:#2F6F5E; --accent-soft:#E4EFEC; --accent-ink:#1D4A3E;
+    --status-active:#2F7D5A; --status-active-bg:#E3F3EA;
+    --status-renov:#A7671E; --status-renov-bg:#FBEEDD;
+    --status-vacant:#8A5A46; --status-vacant-bg:#F3E7E1;
+    --shadow:0 1px 2px rgba(22,32,43,.05), 0 10px 28px rgba(22,32,43,.07);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:'Public Sans',system-ui,sans-serif;}
+  h1,h2,h3{font-family:'Fraunces',Georgia,serif; font-weight:600; margin:0;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:14px 24px; background:var(--surface); border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand-mark{
+    width:36px; height:36px; border-radius:8px; background:var(--accent); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:600; font-size:15px;
+  }
+  .brand-text{display:flex; flex-direction:column; line-height:1.2;}
+  .brand-name{font-family:'Fraunces',serif; font-weight:600; font-size:16px;}
+  .brand-tag{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint);}
+  .session{display:flex; align-items:center; gap:14px;}
+  .client-name{font-weight:600; font-size:14px;}
+  .logout-btn{
+    border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);
+    border-radius:8px; padding:7px 12px; font-size:13px; cursor:pointer;
+  }
+  .logout-btn:hover{border-color:var(--accent); color:var(--accent-ink);}
+
+  main{max-width:920px; margin:0 auto; padding:28px 24px 48px;}
+  [hidden]{display:none !important;}
+
+  /* login */
+  .login-wrap{
+    max-width:380px; margin:64px auto; background:var(--surface); border:1px solid var(--line);
+    border-radius:14px; padding:32px; box-shadow:var(--shadow);
+  }
+  .login-wrap h1{font-size:22px; margin-bottom:6px;}
+  .login-wrap p{color:var(--ink-soft); font-size:13.5px; margin:0 0 20px;}
+  label{display:block; font-size:12px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px;}
+  input{
+    width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px;
+    font-size:14px; font-family:inherit; margin-bottom:16px; background:var(--paper); color:var(--ink);
+  }
+  input:focus{outline:2px solid var(--accent); outline-offset:1px;}
+  button.primary{
+    width:100%; padding:11px; border:none; border-radius:8px; background:var(--accent); color:#fff;
+    font-size:14px; font-weight:600; cursor:pointer;
+  }
+  button.primary:hover{background:var(--accent-ink);}
+  .error{color:#B4442E; font-size:13px; margin-top:12px; min-height:16px;}
+
+  /* portfolio */
+  .portfolio-head{margin-bottom:18px;}
+  .portfolio-head h1{font-size:24px;}
+  .sub{color:var(--ink-soft); font-size:13.5px; margin-top:4px;}
+  .stats{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+  .stat{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:8px 14px; min-width:74px; display:flex; flex-direction:column;}
+  .stat-value{font-family:'IBM Plex Mono',monospace; font-weight:500; font-size:18px;}
+  .stat-label{font-size:11px; color:var(--ink-faint);}
+
+  .cards{display:flex; flex-direction:column; gap:10px; margin-top:20px;}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
+  .card-top{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .unit-num{font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink-faint);}
+  .status-pill{font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px;}
+  .status-active{background:var(--status-active-bg); color:var(--status-active);}
+  .status-renov{background:var(--status-renov-bg); color:var(--status-renov);}
+  .status-vacant{background:var(--status-vacant-bg); color:var(--status-vacant);}
+  .unit-name{font-size:16.5px; margin-top:6px;}
+  .card-meta{display:flex; gap:22px; margin:10px 0 0; flex-wrap:wrap;}
+  .card-meta div{display:flex; flex-direction:column; gap:2px;}
+  .card-meta dt{font-size:10.5px; text-transform:uppercase; color:var(--ink-faint);}
+  .card-meta dd{margin:0; font-family:'IBM Plex Mono',monospace; font-size:13px;}
+  .notes{margin-top:10px; font-size:13px; color:var(--ink-soft);}
+  .empty{color:var(--ink-faint); font-size:14px; padding:24px 0;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">LI</span>
+    <div class="brand-text">
+      <span class="brand-name">Layered Insights GIS</span>
+      <span class="brand-tag">Client Portal</span>
+    </div>
+  </div>
+  <div class="session" id="sessionBar" hidden>
+    <span class="client-name" id="clientNameLabel"></span>
+    <button class="logout-btn" id="logoutBtn">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <section class="login-wrap" id="loginView">
+    <h1>Sign in</h1>
+    <p>Access your property portfolio.</p>
+    <form id="loginForm">
+      <label for="username">Username</label>
+      <input id="username" name="username" autocomplete="username" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="primary" type="submit">Sign in</button>
+      <p class="error" id="loginError"></p>
+    </form>
+  </section>
+
+  <section id="portfolioView" hidden>
+    <div class="portfolio-head">
+      <h1>Your Properties</h1>
+      <p class="sub" id="portfolioSub">&nbsp;</p>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+</main>
+
+<script>
+(function(){
+  var loginView = document.getElementById('loginView');
+  var portfolioView = document.getElementById('portfolioView');
+  var sessionBar = document.getElementById('sessionBar');
+  var clientNameLabel = document.getElementById('clientNameLabel');
+  var loginForm = document.getElementById('loginForm');
+  var loginError = document.getElementById('loginError');
+
+  var STATUS_LABELS = { ACTIVE: 'Active', VACANT: 'Vacant', RENOV: 'Under Renovation' };
+  var STATUS_CLASS = { ACTIVE: 'status-active', VACANT: 'status-vacant', RENOV: 'status-renov' };
+
+  function formatDate(epochMs){
+    if(!epochMs) return '—';
+    var d = new Date(epochMs);
+    return d.toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' });
+  }
+
+  function renderPortfolio(clientName, units){
+    clientNameLabel.textContent = clientName;
+    sessionBar.hidden = false;
+    loginView.hidden = true;
+    portfolioView.hidden = false;
+
+    var totalSqft = units.reduce(function(s,u){ return s + (u.SqFt||0); }, 0);
+    var activeCount = units.filter(function(u){ return u.Status==='ACTIVE'; }).length;
+
+    document.getElementById('portfolioSub').textContent = units.length + ' unit' + (units.length===1?'':'s') + ' under management';
+    document.getElementById('stats').innerHTML = [
+      {v: units.length, l:'Units'},
+      {v: totalSqft.toLocaleString(), l:'Sq Ft'},
+      {v: activeCount, l:'Active'}
+    ].map(function(s){
+      return '<div class="stat"><span class="stat-value">'+s.v+'</span><span class="stat-label">'+s.l+'</span></div>';
+    }).join('');
+
+    var cardsEl = document.getElementById('cards');
+    if(units.length === 0){
+      cardsEl.innerHTML = '<p class="empty">No properties are on file for your account yet.</p>';
+      return;
+    }
+    cardsEl.innerHTML = units.map(function(u){
+      var statusKey = u.Status || 'ACTIVE';
+      return ''
+        +'<article class="card">'
+        +  '<div class="card-top">'
+        +    '<span class="unit-num mono">Unit '+(u.UnitNumber||'—')+'</span>'
+        +    '<span class="status-pill '+(STATUS_CLASS[statusKey]||'status-active')+'">'+(STATUS_LABELS[statusKey]||statusKey)+'</span>'
+        +  '</div>'
+        +  '<h3 class="unit-name">'+(u.UnitName || 'Unnamed Unit')+'</h3>'
+        +  '<dl class="card-meta">'
+        +    '<div><dt>Sq Ft</dt><dd>'+(u.SqFt ? Math.round(u.SqFt).toLocaleString() : '—')+'</dd></div>'
+        +    '<div><dt>Last Inspected</dt><dd>'+formatDate(u.LastInspectionDate)+'</dd></div>'
+        +  '</dl>'
+        +  (u.Notes ? '<p class="notes">'+u.Notes+'</p>' : '')
+        +'</article>';
+    }).join('');
+  }
+
+  function showLoggedOut(){
+    sessionBar.hidden = true;
+    portfolioView.hidden = true;
+    loginView.hidden = false;
+  }
+
+  function loadProperties(){
+    fetch('/api/properties', { credentials: 'same-origin' })
+      .then(function(res){
+        if(res.status === 401){ showLoggedOut(); return null; }
+        return res.json();
+      })
+      .then(function(data){
+        if(!data) return;
+        if(data.error){ showLoggedOut(); return; }
+        renderPortfolio(data.clientName, data.units || []);
+      })
+      .catch(function(){ showLoggedOut(); });
+  }
+
+  loginForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    loginError.textContent = '';
+    var username = document.getElementById('username').value;
+    var password = document.getElementById('password').value;
+
+    fetch('/api/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password })
+    })
+      .then(function(res){ return res.json().then(function(data){ return { ok: res.ok, data: data }; }); })
+      .then(function(result){
+        if(!result.ok){
+          loginError.textContent = result.data.error || 'Sign in failed.';
+          return;
+        }
+        loadProperties();
+      })
+      .catch(function(){ loginError.textContent = 'Could not reach the server. Try again.'; });
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', function(){
+    fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).then(showLoggedOut);
+  });
+
+  // On load, see if there's already a valid session.
+  loadProperties();
+})();
+</script>
+</body>
+</html>
