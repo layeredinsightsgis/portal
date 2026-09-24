@@ -1,5 +1,6 @@
 # Layered Insights GIS — Client Portal
 
+
 Cloudflare Pages + Pages Functions (TypeScript) + D1. Static frontend in
 `public/`, backend API in `functions/api/`. No separate server to run or
 pay for -- Cloudflare hosts both from the same GitHub repo.
