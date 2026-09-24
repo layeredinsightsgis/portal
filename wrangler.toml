@@ -1,0 +1,10 @@
+name = "layered-insights-portal"
+compatibility_date = "2026-09-01"
+pages_build_output_dir = "public"
+
+# Created by `wrangler d1 create layered_insights_portal` -- replace
+# database_id with the id that command prints.
+[[d1_databases]]
+binding = "DB"
+database_name = "layered_insights_portal"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"

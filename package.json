@@ -1,0 +1,14 @@
+{
+  "name": "layered-insights-portal",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wrangler pages dev public --d1=DB",
+    "deploy": "wrangler pages deploy public"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0",
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.5.0"
+  }
+}
