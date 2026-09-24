@@ -15,9 +15,22 @@ database_id = "9b878074-b10d-4680-84ba-1b34ca560bae"
 
 # Non-secret values only -- this repo is public. ARCGIS_CLIENT_SECRET and
 # SESSION_SECRET must NOT go here; they're bound via Cloudflare's Secrets
-# Store instead (dashboard: Worker -> Overview -> Add a binding -> Secrets
-# Store), since the trial ArcGIS org can't issue API keys and this repo
-# has no private place to hide a plain-text secret.
+# Store instead (see below), since the trial ArcGIS org can't issue API
+# keys and this repo has no private place to hide a plain-text secret.
 [vars]
 ARCGIS_CLIENT_ID = "MnvmzTtJVZv9dvyf"
 ARCGIS_LAYER_URL = "https://services8.arcgis.com/36XL3b77TZDgZiaL/arcgis/rest/services/Units/FeatureServer/1"
+
+# Secrets Store bindings must be declared here, not just added in the
+# dashboard -- `wrangler deploy` treats this file as the source of truth
+# and strips any binding added through the dashboard UI that isn't also
+# listed here on the next deploy.
+[[secrets_store_secrets]]
+binding = "SESSION_SECRET"
+store_id = "d4d6c2ae8544470f98d26580faacaf17"
+secret_name = "session-secret"
+
+[[secrets_store_secrets]]
+binding = "ARCGIS_CLIENT_SECRET"
+store_id = "d4d6c2ae8544470f98d26580faacaf17"
+secret_name = "arcgis-client-secret"
