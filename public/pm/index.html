@@ -70,6 +70,14 @@
   .bookmark-btn:hover{border-color:var(--accent);}
   .bookmark-btn .b-name{display:block; font-weight:600; margin-bottom:2px;}
   .bookmark-btn .b-addr{display:block; color:var(--ink-faint); font-size:12px;}
+  .bookmark-btn.active{border-color:var(--accent); background:#eaf2ef;}
+  #floorSection{margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--line);}
+  #floorButtons{display:flex; flex-wrap:wrap; gap:6px;}
+  #floorButtons p{font-size:12px; color:var(--ink-faint); margin:0;}
+  .floor-btn{
+    background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;
+  }
+  .floor-btn.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
   #mapContainer{flex:1; position:relative;}
   #mapStatus{
     position:absolute; top:12px; left:12px; z-index:10; background:var(--surface); border:1px solid var(--line);
@@ -114,6 +122,10 @@
       <h2>Layers</h2>
       <!-- checkboxes populated once the map/layers exist, see initMap() -->
     </div>
+    <div id="floorSection">
+      <h2>Floor</h2>
+      <div id="floorButtons"><p>Select a building below to filter by floor.</p></div>
+    </div>
     <h2>Properties</h2>
     <div id="bookmarkList">Loading…</div>
   </div>
@@ -134,6 +146,7 @@
   var bookmarkList = document.getElementById('bookmarkList');
   var mapStatus = document.getElementById('mapStatus');
   var layerToggles = document.getElementById('layerToggles');
+  var floorButtons = document.getElementById('floorButtons');
 
   var view = null; // set once the map initializes
 
@@ -212,13 +225,80 @@
         }
       });
 
+      var evacLayer = new FeatureLayer({
+        url: baseUrl + "/4",
+        title: "Evacuation Routes",
+        outFields: ["*"],
+        visible: false, // detail layer -- off by default, toggle in sidebar
+        popupTemplate: {
+          title: "Evacuation Route",
+          content: "Floor ID: {FloorID}<br>Unit ID: {UnitID}"
+        }
+      });
+
       var map = new Map({
         basemap: "arcgis/topographic",
-        // Draw order back-to-front: Structures on the bottom, Rooms on top,
-        // so the more detailed layers are visible above the coarser ones
-        // once toggled on.
-        layers: [structuresLayer, floorsLayer, unitsLayer, roomsLayer]
+        // Draw order back-to-front: Structures on the bottom, Evacuation
+        // Routes on top, so the more detailed layers are visible above the
+        // coarser ones once toggled on.
+        layers: [structuresLayer, floorsLayer, unitsLayer, roomsLayer, evacLayer]
       });
+
+      // Units, Rooms, Floors, and Evacuation Routes are all scoped to a
+      // FloorID -- without a floor filter, every floor of a multi-story
+      // building would render stacked on top of each other at the same
+      // footprint. floorScopedLayers is filtered together whenever the
+      // user picks a floor (or "All floors") in the sidebar.
+      var floorScopedLayers = [floorsLayer, unitsLayer, roomsLayer, evacLayer];
+      var floorsByStructure = {}; // StructureID -> sorted [{FloorID, FloorNumber}, ...]
+      var activeStructureId = null;
+      var activeFloorId = null; // null = "All floors" (no filter)
+
+      function setFloorFilter(floorId){
+        activeFloorId = floorId;
+        var expr = floorId ? "FloorID = '" + floorId.replace(/'/g, "''") + "'" : "1=1";
+        floorScopedLayers.forEach(function(l){ l.definitionExpression = expr; });
+
+        // Reflect the active choice in the floor button styling.
+        var btns = floorButtons.querySelectorAll(".floor-btn");
+        btns.forEach(function(btn){
+          btn.classList.toggle("active", btn.dataset.floorId === (floorId || ""));
+        });
+      }
+
+      function showFloorPicker(structureId){
+        activeStructureId = structureId;
+        var floors = floorsByStructure[structureId] || [];
+        floorButtons.innerHTML = "";
+
+        if (!floors.length){
+          floorButtons.innerHTML = "<p>No floors on record for this building.</p>";
+          setFloorFilter(null);
+          return;
+        }
+
+        var allBtn = document.createElement("button");
+        allBtn.type = "button";
+        allBtn.className = "floor-btn";
+        allBtn.textContent = "All floors";
+        allBtn.dataset.floorId = "";
+        allBtn.addEventListener("click", function(){ setFloorFilter(null); });
+        floorButtons.appendChild(allBtn);
+
+        floors.forEach(function(f){
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "floor-btn";
+          btn.textContent = "Floor " + f.FloorNumber;
+          btn.dataset.floorId = f.FloorID;
+          btn.addEventListener("click", function(){ setFloorFilter(f.FloorID); });
+          floorButtons.appendChild(btn);
+        });
+
+        // Default to the first floor rather than "All floors" -- that's
+        // the view that actually avoids stacked units/rooms/routes.
+        setFloorFilter(floors[0].FloorID);
+      }
 
       view = new MapView({
         container: "mapContainer",
@@ -233,11 +313,12 @@
         { layer: structuresLayer, label: "Structures" },
         { layer: unitsLayer, label: "Units" },
         { layer: floorsLayer, label: "Floors" },
-        { layer: roomsLayer, label: "Rooms" }
+        { layer: roomsLayer, label: "Rooms" },
+        { layer: evacLayer, label: "Evacuation Routes" }
       ];
 
       toggleableLayers.forEach(function(entry){
-        var id = "layer-toggle-" + entry.label.toLowerCase();
+        var id = "layer-toggle-" + entry.label.toLowerCase().replace(/\s+/g, "-");
 
         var wrapper = document.createElement("label");
         wrapper.className = "layer-toggle";
@@ -263,21 +344,42 @@
       showMapStatus("Loading properties…");
 
       view.when(function(){
-        return structuresLayer.queryFeatures({
-          where: "1=1",
-          outFields: ["*"],
-          returnGeometry: true
+        return Promise.all([
+          structuresLayer.queryFeatures({
+            where: "1=1",
+            outFields: ["*"],
+            returnGeometry: true
+          }),
+          floorsLayer.queryFeatures({
+            where: "1=1",
+            outFields: ["FloorID", "StructureID", "FloorNumber"],
+            returnGeometry: false
+          })
+        ]);
+      }).then(function(results){
+        var structuresResult = results[0];
+        var floorsResult = results[1];
+
+        // Group floors by structure, sorted low-to-high, for the floor
+        // picker shown once a building is selected.
+        floorsResult.features.forEach(function(f){
+          var attrs = f.attributes;
+          var list = floorsByStructure[attrs.StructureID] || (floorsByStructure[attrs.StructureID] = []);
+          list.push(attrs);
         });
-      }).then(function(result){
+        Object.keys(floorsByStructure).forEach(function(sid){
+          floorsByStructure[sid].sort(function(a, b){ return a.FloorNumber - b.FloorNumber; });
+        });
+
         hideMapStatus();
         bookmarkList.innerHTML = "";
 
-        if (!result.features.length){
+        if (!structuresResult.features.length){
           bookmarkList.textContent = "No structures found.";
           return;
         }
 
-        result.features.forEach(function(feature){
+        structuresResult.features.forEach(function(feature){
           var attrs = feature.attributes;
           var name = attrs.StructureName || ("Structure " + attrs.StructureID);
           var addr = attrs.Address || "";
@@ -290,11 +392,19 @@
           btn.querySelector(".b-addr").textContent = addr;
 
           btn.addEventListener("click", function(){
+            // Zoom to the building...
             if (feature.geometry && feature.geometry.extent){
               view.goTo(feature.geometry.extent.expand(1.8));
             } else {
               view.goTo(feature.geometry);
             }
+
+            // ...and scope Units/Rooms/Floors/Evacuation Routes to its floors.
+            showFloorPicker(attrs.StructureID);
+
+            var allBookmarkBtns = bookmarkList.querySelectorAll(".bookmark-btn");
+            allBookmarkBtns.forEach(function(b){ b.classList.remove("active"); });
+            btn.classList.add("active");
           });
 
           bookmarkList.appendChild(btn);
