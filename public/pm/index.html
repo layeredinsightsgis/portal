@@ -148,6 +148,11 @@
   #editUnitError{color:#b3413a; font-size:12px; min-height:16px; margin-bottom:4px;}
   #editUnitSaved{color:#2f7d5a; font-size:12px; min-height:16px; margin-bottom:4px;}
   .active-tool{background:var(--accent) !important; color:var(--accent-ink) !important;}
+  .measure-toolbar{
+    display:flex; gap:4px; background:var(--surface); border:1px solid var(--line); border-radius:8px;
+    padding:4px; margin-bottom:6px; box-shadow:0 1px 2px rgba(0,0,0,.15);
+  }
+  .measure-tool-btn{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;}
 
   /* ---- layout guide dropdown ---- */
   #layoutGuideWrap{position:relative;}
@@ -930,9 +935,33 @@
         });
       });
 
-      // ---- Measurement tool (distance + area, toggle via the button) ----
+      // ---- Measurement tool (distance + area) ----
+      // esri/widgets/Measurement has no built-in Distance/Area picker of
+      // its own -- it only renders once activeTool is explicitly set to
+      // "distance" or "area", and shows nothing while it's null. So the
+      // toggle buttons below are the actual picker; this matches Esri's
+      // own documented usage pattern for this widget, not a workaround.
       var measurement = new Measurement({ view: view, activeTool: null, visible: false });
       view.ui.add(measurement, "top-right");
+
+      var measureToolbar = document.createElement("div");
+      measureToolbar.className = "measure-toolbar";
+      measureToolbar.hidden = true;
+      measureToolbar.innerHTML =
+        '<button type="button" class="measure-tool-btn" data-tool="distance">Distance</button>' +
+        '<button type="button" class="measure-tool-btn" data-tool="area">Area</button>';
+      view.ui.add(measureToolbar, "top-right");
+
+      var distanceToolBtn = measureToolbar.querySelector('[data-tool="distance"]');
+      var areaToolBtn = measureToolbar.querySelector('[data-tool="area"]');
+
+      function setActiveMeasureTool(tool){
+        measurement.activeTool = tool;
+        distanceToolBtn.classList.toggle("active-tool", tool === "distance");
+        areaToolBtn.classList.toggle("active-tool", tool === "area");
+      }
+      distanceToolBtn.addEventListener("click", function(){ setActiveMeasureTool("distance"); });
+      areaToolBtn.addEventListener("click", function(){ setActiveMeasureTool("area"); });
 
       var measureBtn = document.createElement("button");
       measureBtn.className = "esri-widget esri-widget--button esri-interactive";
@@ -945,12 +974,14 @@
           measurement.clear();
           measurement.activeTool = null;
           measurement.visible = false;
+          measureToolbar.hidden = true;
+          distanceToolBtn.classList.remove("active-tool");
+          areaToolBtn.classList.remove("active-tool");
           measureBtn.classList.remove("active-tool");
         } else {
-          // Leave activeTool unset (null) so the widget opens on its own
-          // Distance/Area picker screen instead of jumping straight into
-          // one tool -- forcing activeTool here skips that choice.
           measurement.visible = true;
+          measureToolbar.hidden = false;
+          setActiveMeasureTool("distance"); // sensible default when first opened
           measureBtn.classList.add("active-tool");
         }
       });
