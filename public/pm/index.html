@@ -79,6 +79,9 @@
   .bookmark-btn .b-name{display:block; font-weight:600; margin-bottom:2px;}
   .bookmark-btn .b-addr{display:block; color:var(--ink-faint); font-size:12px;}
   .bookmark-btn.active{border-color:var(--accent); background:#eaf2ef;}
+  .bookmark-btn.muted{opacity:.45;}
+  .bookmark-btn.muted.active{opacity:.7;}
+  .bookmark-btn .b-flag{display:block; margin-top:4px; font-size:11px; font-weight:600; color:#a7671e;}
   #floorSection{margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--line);}
   #floorButtons{display:flex; flex-wrap:wrap; gap:6px;}
   #floorButtons p{font-size:12px; color:var(--ink-faint); margin:0;}
@@ -797,10 +800,44 @@
         setFloorFilter(floors[0].FloorID);
       }
 
+      // A building is "relevant" to the selected client if any of that
+      // client's units live in it. Structures/bookmarks themselves are
+      // never filtered out -- god mode always sees the whole portfolio --
+      // but buildings with nothing for the selected client are dimmed and
+      // flagged, since clicking into one would just show empty layers.
+      function structureHasClientUnits(structureId, clientId){
+        var unitIds = unitIdsByClient[clientId] || [];
+        return unitIds.some(function(uid){
+          var u = unitsById[uid];
+          return u && String(u.StructureID) === String(structureId);
+        });
+      }
+
+      function refreshBookmarkRelevance(){
+        var btns = bookmarkList.querySelectorAll(".bookmark-btn");
+        btns.forEach(function(btn){
+          var relevant = !activeClientId || structureHasClientUnits(btn.dataset.structureId, activeClientId);
+          btn.classList.toggle("muted", !relevant);
+
+          var flag = btn.querySelector(".b-flag");
+          if (!relevant){
+            if (!flag){
+              flag = document.createElement("span");
+              flag.className = "b-flag";
+              flag.textContent = "No units for this client";
+              btn.appendChild(flag);
+            }
+          } else if (flag){
+            flag.remove();
+          }
+        });
+      }
+
       clientSelect.addEventListener("change", function(){
         activeClientId = clientSelect.value || null;
         viewingLine.textContent = "Viewing: " + (clientSelect.options[clientSelect.selectedIndex].textContent);
         applyFilters();
+        refreshBookmarkRelevance();
       });
 
       view = new MapView({
@@ -1196,6 +1233,7 @@
 
           var btn = document.createElement("button");
           btn.className = "bookmark-btn";
+          btn.dataset.structureId = attrs.StructureID;
           btn.innerHTML =
             '<span class="b-name"></span><span class="b-addr"></span>';
           btn.querySelector(".b-name").textContent = name;
@@ -1219,6 +1257,8 @@
 
           bookmarkList.appendChild(btn);
         });
+
+        refreshBookmarkRelevance();
 
         // Show all open work orders by default, before any building/client is picked.
         renderWorkOrders();
