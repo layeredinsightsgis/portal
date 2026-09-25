@@ -105,6 +105,24 @@
     position:absolute; top:12px; left:12px; z-index:10; background:var(--surface); border:1px solid var(--line);
     border-radius:8px; padding:8px 12px; font-size:13px; color:var(--ink-faint);
   }
+  #editPanel{
+    position:absolute; top:12px; right:12px; z-index:20; width:280px;
+    background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:16px;
+    box-shadow:0 4px 16px rgba(0,0,0,.15);
+  }
+  #editPanel .edit-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;}
+  #editPanel .edit-head h3{font-size:14px;}
+  #editPanel .edit-close{background:none; border:none; padding:0; font-size:18px; line-height:1; cursor:pointer; color:var(--ink-faint);}
+  #editPanel label{font-size:11px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:4px;}
+  #editPanel input, #editPanel select, #editPanel textarea{
+    width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:13px;
+    font-family:inherit; margin-bottom:10px; background:var(--bg); color:var(--ink); resize:vertical;
+  }
+  #editPanel input:disabled{color:var(--ink-faint);}
+  .edit-actions{display:flex; gap:8px; justify-content:flex-end;}
+  .edit-actions button{padding:7px 12px; font-size:13px;}
+  #editUnitError{color:#b3413a; font-size:12px; min-height:16px; margin-bottom:4px;}
+  #editUnitSaved{color:#2f7d5a; font-size:12px; min-height:16px; margin-bottom:4px;}
 </style>
 </head>
 <body>
@@ -170,6 +188,34 @@
   </div>
   <div id="mapContainer">
     <div id="mapStatus" hidden></div>
+    <div id="editPanel" hidden>
+      <div class="edit-head">
+        <h3 id="editPanelTitle">Edit Unit</h3>
+        <button type="button" class="edit-close" id="editPanelClose">&times;</button>
+      </div>
+      <form id="editUnitForm">
+        <label for="editUnitNumber">Unit Number</label>
+        <input type="text" id="editUnitNumber" disabled>
+        <label for="editUnitName">Unit Name</label>
+        <input type="text" id="editUnitName">
+        <label for="editUnitStatus">Status</label>
+        <select id="editUnitStatus">
+          <option value="ACTIVE">Active</option>
+          <option value="VACANT">Vacant</option>
+          <option value="RENOV">Under Renovation</option>
+        </select>
+        <label for="editUnitSqFt">Sq Ft</label>
+        <input type="number" id="editUnitSqFt" step="1" min="0">
+        <label for="editUnitNotes">Notes</label>
+        <textarea id="editUnitNotes" rows="3"></textarea>
+        <div id="editUnitError"></div>
+        <div id="editUnitSaved"></div>
+        <div class="edit-actions">
+          <button type="button" id="editUnitCancel">Cancel</button>
+          <button type="submit" class="primary" id="editUnitSave">Save</button>
+        </div>
+      </form>
+    </div>
   </div>
 </section>
 
@@ -190,6 +236,17 @@
   var viewingLine = document.getElementById('viewingLine');
   var workOrderTabs = document.getElementById('workOrderTabs');
   var workOrderList = document.getElementById('workOrderList');
+  var editPanel = document.getElementById('editPanel');
+  var editPanelClose = document.getElementById('editPanelClose');
+  var editUnitForm = document.getElementById('editUnitForm');
+  var editUnitNumber = document.getElementById('editUnitNumber');
+  var editUnitName = document.getElementById('editUnitName');
+  var editUnitStatus = document.getElementById('editUnitStatus');
+  var editUnitSqFt = document.getElementById('editUnitSqFt');
+  var editUnitNotes = document.getElementById('editUnitNotes');
+  var editUnitError = document.getElementById('editUnitError');
+  var editUnitSaved = document.getElementById('editUnitSaved');
+  var editUnitCancel = document.getElementById('editUnitCancel');
 
   var view = null; // set once the map initializes
 
@@ -482,6 +539,16 @@
         center: [-83.98, 34.53] // Dahlonega, GA area -- reasonable default
       });
 
+      // Clicking a Unit opens the edit panel (in addition to its normal
+      // popup) -- hitTest is scoped to unitsLayer only so clicking a
+      // Structure/Room/etc. doesn't trigger it.
+      view.on("click", function(event){
+        view.hitTest(event, { include: unitsLayer }).then(function(response){
+          var result = response.results && response.results[0];
+          if (result && result.graphic) openEditPanel(result.graphic.attributes);
+        });
+      });
+
       // Sidebar checkboxes -- one per layer, user-controlled rather than
       // toggled automatically by zoom scale.
       var toggleableLayers = [
@@ -526,6 +593,85 @@
         url.searchParams.set("f", "json");
         return fetch(url.toString()).then(function(res){ return res.json(); });
       }
+
+      // Shared applyEdits helper -- geometry is never touched here (that
+      // stays in ArcGIS Pro); this only ever sends attribute updates.
+      function applyEdits(index, updates){
+        var url = baseUrl + "/" + index + "/applyEdits";
+        var body = new URLSearchParams({
+          f: "json",
+          token: token,
+          updates: JSON.stringify(updates)
+        });
+        return fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString()
+        }).then(function(res){ return res.json(); });
+      }
+
+      // ---- Unit attribute editing (click a unit on the map) ----
+      var editingObjectId = null;
+      var editingUnitId = null;
+
+      function openEditPanel(attrs){
+        editingObjectId = attrs[unitsLayer.objectIdField];
+        editingUnitId = attrs.UnitID;
+        editUnitError.textContent = "";
+        editUnitSaved.textContent = "";
+        editUnitNumber.value = attrs.UnitNumber || "";
+        editUnitName.value = attrs.UnitName || "";
+        editUnitStatus.value = attrs.Status || "ACTIVE";
+        editUnitSqFt.value = (attrs.SqFt !== null && attrs.SqFt !== undefined) ? attrs.SqFt : "";
+        editUnitNotes.value = attrs.Notes || "";
+        editPanel.hidden = false;
+      }
+
+      function closeEditPanel(){
+        editPanel.hidden = true;
+        editingObjectId = null;
+      }
+
+      editPanelClose.addEventListener("click", closeEditPanel);
+      editUnitCancel.addEventListener("click", closeEditPanel);
+
+      editUnitForm.addEventListener("submit", function(e){
+        e.preventDefault();
+        if (editingObjectId === null) return;
+        editUnitError.textContent = "";
+        editUnitSaved.textContent = "";
+
+        var updatedAttrs = {};
+        updatedAttrs[unitsLayer.objectIdField] = editingObjectId;
+        updatedAttrs.UnitName = editUnitName.value || null;
+        updatedAttrs.Status = editUnitStatus.value;
+        updatedAttrs.SqFt = editUnitSqFt.value === "" ? null : Number(editUnitSqFt.value);
+        updatedAttrs.Notes = editUnitNotes.value || null;
+
+        applyEdits(1, { updates: [{ attributes: updatedAttrs }] }).then(function(result){
+          var updateResult = result.updateResults && result.updateResults[0];
+          if (!updateResult || !updateResult.success){
+            var msg = (updateResult && updateResult.error && updateResult.error.description) || "Save failed -- check that attribute editing is enabled on the Units layer.";
+            editUnitError.textContent = msg;
+            return;
+          }
+
+          // Keep the local unit cache in sync so the client filter and
+          // work-order labels reflect the edit without a full reload.
+          var unit = unitsById[editingUnitId];
+          if (unit){
+            unit.UnitName = updatedAttrs.UnitName;
+            unit.Status = updatedAttrs.Status;
+            unit.SqFt = updatedAttrs.SqFt;
+            unit.Notes = updatedAttrs.Notes;
+          }
+
+          editUnitSaved.textContent = "Saved.";
+          unitsLayer.refresh();
+        }).catch(function(err){
+          editUnitError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
+        });
+      });
 
       showMapStatus("Loading properties…");
 
