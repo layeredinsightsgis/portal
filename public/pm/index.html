@@ -255,10 +255,30 @@
       <!-- checkboxes populated once the map/layers exist, see initMap() -->
     </div>
     <div id="clientSection">
-      <h2>Client</h2>
+      <div class="section-head">
+        <h2>Client</h2>
+        <button type="button" class="add-btn" id="addClientBtn">+ New</button>
+      </div>
       <select id="clientSelect">
         <option value="">All clients</option>
       </select>
+      <form id="addClientForm" class="mini-form" hidden>
+        <label for="newClientName">Client Name</label>
+        <input type="text" id="newClientName">
+        <label for="newClientContact">Contact Name</label>
+        <input type="text" id="newClientContact">
+        <label for="newClientPhone">Phone</label>
+        <input type="text" id="newClientPhone">
+        <label for="newClientEmail">Email</label>
+        <input type="email" id="newClientEmail">
+        <label for="newClientNotes">Notes</label>
+        <textarea id="newClientNotes" rows="2"></textarea>
+        <div id="newClientError" class="mini-error"></div>
+        <div class="mini-actions">
+          <button type="button" id="newClientCancel">Cancel</button>
+          <button type="submit" class="primary" id="newClientSave">Add</button>
+        </div>
+      </form>
     </div>
     <div id="floorSection">
       <h2>Floor</h2>
@@ -347,6 +367,11 @@
           <option value="VACANT">Vacant</option>
           <option value="RENOV">Under Renovation</option>
         </select>
+        <label for="editUnitClient">Client</label>
+        <select id="editUnitClient">
+          <option value="">Unassigned</option>
+          <!-- remaining options populated once Clients load, see initMap() -->
+        </select>
         <label for="editUnitSqFt">Sq Ft</label>
         <input type="number" id="editUnitSqFt" step="1" min="0">
         <label for="editUnitNotes">Notes</label>
@@ -391,6 +416,15 @@
   var layerToggles = document.getElementById('layerToggles');
   var floorButtons = document.getElementById('floorButtons');
   var clientSelect = document.getElementById('clientSelect');
+  var addClientBtn = document.getElementById('addClientBtn');
+  var addClientForm = document.getElementById('addClientForm');
+  var newClientName = document.getElementById('newClientName');
+  var newClientContact = document.getElementById('newClientContact');
+  var newClientPhone = document.getElementById('newClientPhone');
+  var newClientEmail = document.getElementById('newClientEmail');
+  var newClientNotes = document.getElementById('newClientNotes');
+  var newClientError = document.getElementById('newClientError');
+  var newClientCancel = document.getElementById('newClientCancel');
   var viewingLine = document.getElementById('viewingLine');
   var workOrderTabs = document.getElementById('workOrderTabs');
   var workOrderList = document.getElementById('workOrderList');
@@ -420,6 +454,7 @@
   var editUnitNumber = document.getElementById('editUnitNumber');
   var editUnitName = document.getElementById('editUnitName');
   var editUnitStatus = document.getElementById('editUnitStatus');
+  var editUnitClient = document.getElementById('editUnitClient');
   var editUnitSqFt = document.getElementById('editUnitSqFt');
   var editUnitNotes = document.getElementById('editUnitNotes');
   var editUnitError = document.getElementById('editUnitError');
@@ -536,6 +571,7 @@
       var unitsById = {};          // UnitID -> {ClientID, FloorID, StructureID, UnitNumber, UnitName}
       var maintenanceLogs = [];    // all MaintenanceLog rows, filtered/rendered client-side
       var mepContacts = [];        // all MEP_Contacts rows, filtered/rendered client-side
+      var clients = [];            // [{ClientID, ClientName}, ...] -- backs both dropdowns below
       var activeStructureId = null;
       var activeFloorId = null;    // null = "All floors"
       var activeClientId = null;   // null = "All clients"
@@ -550,6 +586,15 @@
 
       function sqlQuote(value){
         return "'" + String(value).replace(/'/g, "''") + "'";
+      }
+
+      // Matches the {UPPERCASE-GUID} convention the ArcGIS Pro backfill
+      // tooling uses for StructureID/FloorID/UnitID/RoomID, so a client
+      // added here looks the same as one added any other way. ClientID is
+      // a plain TEXT field (not a GlobalID), so nothing auto-generates a
+      // value for it on add -- this has to happen client-side.
+      function newGuid(){
+        return "{" + crypto.randomUUID().toUpperCase() + "}";
       }
 
       function applyFilters(){
@@ -800,6 +845,29 @@
         setFloorFilter(floors[0].FloorID);
       }
 
+      // Rebuilds both client dropdowns (the sidebar filter and the Edit
+      // Unit panel's assignment field) from the `clients` array, keeping
+      // each one's fixed first option ("All clients" / "Unassigned").
+      // Called on initial load and again after adding a new client so the
+      // new one is selectable immediately without a full page reload.
+      function renderClientOptions(){
+        var sorted = clients.slice().sort(function(a, b){
+          return (a.ClientName || "").localeCompare(b.ClientName || "");
+        });
+
+        [clientSelect, editUnitClient].forEach(function(select){
+          var previousValue = select.value;
+          while (select.options.length > 1){ select.remove(1); }
+          sorted.forEach(function(attrs){
+            var option = document.createElement("option");
+            option.value = attrs.ClientID;
+            option.textContent = attrs.ClientName || attrs.ClientID;
+            select.appendChild(option);
+          });
+          select.value = previousValue; // no-op if that client no longer exists
+        });
+      }
+
       // A building is "relevant" to the selected client if any of that
       // client's units live in it. Structures/bookmarks themselves are
       // never filtered out -- god mode always sees the whole portfolio --
@@ -934,6 +1002,7 @@
         editUnitNumber.value = attrs.UnitNumber || "";
         editUnitName.value = attrs.UnitName || "";
         editUnitStatus.value = attrs.Status || "ACTIVE";
+        editUnitClient.value = attrs.ClientID || "";
         editUnitSqFt.value = (attrs.SqFt !== null && attrs.SqFt !== undefined) ? attrs.SqFt : "";
         editUnitNotes.value = attrs.Notes || "";
         editPanel.hidden = false;
@@ -957,6 +1026,7 @@
         updatedAttrs[unitsLayer.objectIdField] = editingObjectId;
         updatedAttrs.UnitName = editUnitName.value || null;
         updatedAttrs.Status = editUnitStatus.value;
+        updatedAttrs.ClientID = editUnitClient.value || null;
         updatedAttrs.SqFt = editUnitSqFt.value === "" ? null : Number(editUnitSqFt.value);
         updatedAttrs.Notes = editUnitNotes.value || null;
 
@@ -982,14 +1052,32 @@
           // work-order labels reflect the edit without a full reload.
           var unit = unitsById[editingUnitId];
           if (unit){
+            // If the client assignment changed, move this UnitID between
+            // unitIdsByClient's lists too -- that's what Rooms/Evacuation
+            // Routes scoping and the bookmark-dimming both read from.
+            if (unit.ClientID !== updatedAttrs.ClientID){
+              var oldList = unitIdsByClient[unit.ClientID];
+              if (oldList){
+                var idx = oldList.indexOf(editingUnitId);
+                if (idx !== -1) oldList.splice(idx, 1);
+              }
+              if (updatedAttrs.ClientID){
+                var newList = unitIdsByClient[updatedAttrs.ClientID] || (unitIdsByClient[updatedAttrs.ClientID] = []);
+                newList.push(editingUnitId);
+              }
+            }
+
             unit.UnitName = updatedAttrs.UnitName;
             unit.Status = updatedAttrs.Status;
+            unit.ClientID = updatedAttrs.ClientID;
             unit.SqFt = updatedAttrs.SqFt;
             unit.Notes = updatedAttrs.Notes;
           }
 
           editUnitSaved.textContent = "Saved.";
           unitsLayer.refresh();
+          applyFilters();
+          refreshBookmarkRelevance();
         }).catch(function(err){
           editUnitError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
         });
@@ -1056,6 +1144,71 @@
           resetAddWorkOrderForm();
         }).catch(function(err){
           woAddError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
+          saveBtn.disabled = false;
+        });
+      });
+
+      // ---- Add Client ----
+      addClientBtn.addEventListener("click", function(){
+        var showing = !addClientForm.hidden;
+        addClientForm.hidden = showing;
+        addClientBtn.textContent = showing ? "+ New" : "Cancel";
+      });
+
+      function resetAddClientForm(){
+        addClientForm.reset();
+        newClientError.textContent = "";
+        addClientForm.hidden = true;
+        addClientBtn.textContent = "+ New";
+      }
+
+      newClientCancel.addEventListener("click", resetAddClientForm);
+
+      addClientForm.addEventListener("submit", function(e){
+        e.preventDefault();
+        newClientError.textContent = "";
+
+        if (!newClientName.value.trim()){
+          newClientError.textContent = "Client name is required.";
+          return;
+        }
+
+        var attrs = {
+          ClientID: newGuid(),
+          ClientName: newClientName.value.trim(),
+          ContactName: newClientContact.value || null,
+          Phone: newClientPhone.value || null,
+          Email: newClientEmail.value || null,
+          Notes: newClientNotes.value || null
+        };
+
+        var saveBtn = document.getElementById("newClientSave");
+        saveBtn.disabled = true;
+
+        applyEdits(7, { adds: [{ attributes: attrs }] }).then(function(result){
+          if (result.error){
+            newClientError.textContent = "ArcGIS error " + (result.error.code || "") + ": " + (result.error.message || JSON.stringify(result.error));
+            saveBtn.disabled = false;
+            return;
+          }
+
+          var addResult = result.addResults && result.addResults[0];
+          if (!addResult || !addResult.success){
+            var msg = (addResult && addResult.error && (addResult.error.description || addResult.error.message))
+              || ("Unexpected response: " + JSON.stringify(result));
+            newClientError.textContent = msg;
+            saveBtn.disabled = false;
+            return;
+          }
+
+          clients.push(attrs);
+          renderClientOptions();
+          clientSelect.value = attrs.ClientID; // jump straight to the new client
+          clientSelect.dispatchEvent(new Event("change"));
+          saveBtn.disabled = false;
+          resetAddClientForm();
+        }).catch(function(err){
+          newClientError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
           saveBtn.disabled = false;
         });
       });
@@ -1206,17 +1359,10 @@
           woUnitSelect.appendChild(option);
         });
 
-        // Populate the client dropdown from the Clients table.
-        var clientFeatures = (clientsResult.features || []).slice().sort(function(a, b){
-          return (a.attributes.ClientName || "").localeCompare(b.attributes.ClientName || "");
-        });
-        clientFeatures.forEach(function(f){
-          var attrs = f.attributes;
-          var option = document.createElement("option");
-          option.value = attrs.ClientID;
-          option.textContent = attrs.ClientName || attrs.ClientID;
-          clientSelect.appendChild(option);
-        });
+        // Populate the client dropdowns (the sidebar filter and the Edit
+        // Unit panel's assignment field) from the Clients table.
+        clients = (clientsResult.features || []).map(function(f){ return f.attributes; });
+        renderClientOptions();
 
         hideMapStatus();
         bookmarkList.innerHTML = "";
