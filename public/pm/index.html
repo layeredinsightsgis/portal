@@ -649,9 +649,19 @@
         updatedAttrs.Notes = editUnitNotes.value || null;
 
         applyEdits(1, { updates: [{ attributes: updatedAttrs }] }).then(function(result){
+          // Surface whatever ArcGIS actually returned rather than a
+          // guessed message -- a request-level failure (bad token, no
+          // write permission on the OAuth app, etc.) comes back as a
+          // top-level {error: {...}} instead of updateResults.
+          if (result.error){
+            editUnitError.textContent = "ArcGIS error " + (result.error.code || "") + ": " + (result.error.message || JSON.stringify(result.error));
+            return;
+          }
+
           var updateResult = result.updateResults && result.updateResults[0];
           if (!updateResult || !updateResult.success){
-            var msg = (updateResult && updateResult.error && updateResult.error.description) || "Save failed -- check that attribute editing is enabled on the Units layer.";
+            var msg = (updateResult && updateResult.error && (updateResult.error.description || updateResult.error.message))
+              || ("Unexpected response: " + JSON.stringify(result));
             editUnitError.textContent = msg;
             return;
           }
