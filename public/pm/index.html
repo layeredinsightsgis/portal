@@ -31,6 +31,9 @@
   .brand-text .name{font-family:'Fraunces',serif; font-weight:600; font-size:16px;}
   .brand-text .sub{font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint);}
   .session{display:flex; align-items:center; gap:14px; font-size:14px;}
+  .session .whoami{display:flex; flex-direction:column; line-height:1.25; text-align:right;}
+  .session .whoami .role-line{font-weight:600;}
+  .session .whoami .viewing-line{font-size:12px; color:var(--ink-faint);}
   button{
     font-family:inherit; font-size:14px; font-weight:600; border-radius:8px; cursor:pointer; border:1px solid var(--line);
     background:var(--surface); color:var(--ink); padding:8px 14px;
@@ -63,6 +66,11 @@
   #layerToggles{margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--line);}
   .layer-toggle{display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:8px; cursor:pointer;}
   .layer-toggle input{width:auto; margin:0;}
+  #clientSection{margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--line);}
+  #clientSelect{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font-size:13px;
+    font-family:inherit; background:var(--bg); color:var(--ink);
+  }
   .bookmark-btn{
     display:block; width:100%; text-align:left; background:var(--bg); border:1px solid var(--line);
     border-radius:8px; padding:10px 12px; margin-bottom:8px; font-size:13px; cursor:pointer;
@@ -78,6 +86,20 @@
     background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;
   }
   .floor-btn.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  #workOrderSection{margin-top:20px; padding-top:16px; border-top:1px solid var(--line);}
+  #workOrderTabs{display:flex; gap:6px; margin-bottom:10px;}
+  .wo-tab{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;}
+  .wo-tab.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  #workOrderList p{font-size:12px; color:var(--ink-faint); margin:0;}
+  .wo-item{background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px;}
+  .wo-item .wo-top{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12.5px; font-weight:600; margin-bottom:4px;}
+  .wo-item .wo-desc{font-size:12px; margin-bottom:4px;}
+  .wo-item .wo-meta{color:var(--ink-faint); font-size:11px;}
+  .wo-status{font-size:10px; font-weight:700; padding:2px 7px; border-radius:999px; text-transform:uppercase; white-space:nowrap;}
+  .wo-status-rep{background:#fbeedd; color:#a7671e;}
+  .wo-status-wip{background:#e4efec; color:#1d4a3e;}
+  .wo-status-hld{background:#f3e7e1; color:#8a5a46;}
+  .wo-status-cmp{background:#e3f3ea; color:#2f7d5a;}
   #mapContainer{flex:1; position:relative;}
   #mapStatus{
     position:absolute; top:12px; left:12px; z-index:10; background:var(--surface); border:1px solid var(--line);
@@ -96,7 +118,10 @@
     </div>
   </div>
   <div class="session" id="sessionBar" hidden>
-    <span id="pmName"></span>
+    <div class="whoami">
+      <span class="role-line" id="pmName"></span>
+      <span class="viewing-line" id="viewingLine"></span>
+    </div>
     <button id="logoutBtn">Sign out</button>
   </div>
 </header>
@@ -122,12 +147,26 @@
       <h2>Layers</h2>
       <!-- checkboxes populated once the map/layers exist, see initMap() -->
     </div>
+    <div id="clientSection">
+      <h2>Client</h2>
+      <select id="clientSelect">
+        <option value="">All clients</option>
+      </select>
+    </div>
     <div id="floorSection">
       <h2>Floor</h2>
       <div id="floorButtons"><p>Select a building below to filter by floor.</p></div>
     </div>
     <h2>Properties</h2>
     <div id="bookmarkList">Loading…</div>
+    <div id="workOrderSection">
+      <h2>Work Orders</h2>
+      <div id="workOrderTabs">
+        <button type="button" class="wo-tab active" data-tab="open">Open</button>
+        <button type="button" class="wo-tab" data-tab="closed">Closed</button>
+      </div>
+      <div id="workOrderList"><p>Loading…</p></div>
+    </div>
   </div>
   <div id="mapContainer">
     <div id="mapStatus" hidden></div>
@@ -147,6 +186,10 @@
   var mapStatus = document.getElementById('mapStatus');
   var layerToggles = document.getElementById('layerToggles');
   var floorButtons = document.getElementById('floorButtons');
+  var clientSelect = document.getElementById('clientSelect');
+  var viewingLine = document.getElementById('viewingLine');
+  var workOrderTabs = document.getElementById('workOrderTabs');
+  var workOrderList = document.getElementById('workOrderList');
 
   var view = null; // set once the map initializes
 
@@ -168,7 +211,10 @@
     sessionBar.hidden = false;
     loginView.hidden = true;
     mapView.hidden = false;
-    pmName.textContent = displayName;
+    // The PM login has full visibility -- the account itself is always
+    // "Administrator", regardless of the display_name on the pm_users row.
+    pmName.textContent = "Logged in as: Administrator (" + displayName + ")";
+    viewingLine.textContent = "Viewing: all clients";
 
     require([
       "esri/config",
@@ -247,23 +293,146 @@
       // Units, Rooms, Floors, and Evacuation Routes are all scoped to a
       // FloorID -- without a floor filter, every floor of a multi-story
       // building would render stacked on top of each other at the same
-      // footprint. floorScopedLayers is filtered together whenever the
-      // user picks a floor (or "All floors") in the sidebar.
-      var floorScopedLayers = [floorsLayer, unitsLayer, roomsLayer, evacLayer];
-      var floorsByStructure = {}; // StructureID -> sorted [{FloorID, FloorNumber}, ...]
+      // footprint. Units is also scoped to a ClientID, but Rooms/Evacuation
+      // Routes only carry UnitID, so filtering those by client means
+      // filtering to the set of UnitIDs that belong to that client instead.
+      var floorsByStructure = {};  // StructureID -> sorted [{FloorID, FloorNumber}, ...]
+      var unitIdsByClient = {};    // ClientID -> [UnitID, ...]
+      var unitsById = {};          // UnitID -> {ClientID, FloorID, UnitNumber, UnitName}
+      var maintenanceLogs = [];    // all MaintenanceLog rows, filtered/rendered client-side
       var activeStructureId = null;
-      var activeFloorId = null; // null = "All floors" (no filter)
+      var activeFloorId = null;    // null = "All floors"
+      var activeClientId = null;   // null = "All clients"
+      var activeWoTab = "open";    // "open" or "closed"
+
+      var WO_STATUS_LABELS = { REP: "Reported", WIP: "In Progress", HLD: "Holding for Parts", CMP: "Completed" };
+      var WO_STATUS_CLASS = { REP: "wo-status-rep", WIP: "wo-status-wip", HLD: "wo-status-hld", CMP: "wo-status-cmp" };
+      var WO_ISSUE_LABELS = {
+        ELE: "Electrical", PLU: "Plumbing", HVAC: "Heating/Cooling", MINCON: "Minor Construction",
+        MAJCON: "Major Construction", ACC: "Access Controls", FIRSYS: "Fire System", DORWIN: "Doors/Windows"
+      };
+
+      function sqlQuote(value){
+        return "'" + String(value).replace(/'/g, "''") + "'";
+      }
+
+      function applyFilters(){
+        var floorClause = activeFloorId ? "FloorID = " + sqlQuote(activeFloorId) : "1=1";
+
+        if (!activeClientId){
+          floorsLayer.definitionExpression = floorClause;
+          unitsLayer.definitionExpression = floorClause;
+          roomsLayer.definitionExpression = floorClause;
+          evacLayer.definitionExpression = floorClause;
+        } else {
+          var unitIds = unitIdsByClient[activeClientId] || [];
+          // No matching units -- "IN ()" is invalid SQL, so fall back to a
+          // clause that matches nothing rather than accidentally matching
+          // everything.
+          var unitIdClause = unitIds.length
+            ? "UnitID IN (" + unitIds.map(sqlQuote).join(",") + ")"
+            : "1=0";
+
+          floorsLayer.definitionExpression = floorClause; // building footprints aren't client-specific
+          unitsLayer.definitionExpression = floorClause + " AND ClientID = " + sqlQuote(activeClientId);
+          roomsLayer.definitionExpression = floorClause + " AND " + unitIdClause;
+          evacLayer.definitionExpression = floorClause + " AND " + unitIdClause;
+        }
+
+        // Reflect the active floor in the floor button styling.
+        var btns = floorButtons.querySelectorAll(".floor-btn");
+        btns.forEach(function(btn){
+          btn.classList.toggle("active", btn.dataset.floorId === (activeFloorId || ""));
+        });
+
+        renderWorkOrders();
+      }
+
+      // MaintenanceLog only carries a UnitID (no FloorID/ClientID of its
+      // own), so it's scoped to the current floor/client by checking each
+      // log's UnitID against unitsById -- the same lookup built from the
+      // Units query below.
+      function renderWorkOrders(){
+        var isClosed = function(status){ return status === "CMP"; };
+
+        var scoped = maintenanceLogs.filter(function(log){
+          var unit = unitsById[log.UnitID];
+          if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
+          if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
+          return activeWoTab === "closed" ? isClosed(log.Status) : !isClosed(log.Status);
+        });
+
+        // Update tab labels with live counts for whichever scope is active.
+        var openCount = maintenanceLogs.filter(function(log){
+          var unit = unitsById[log.UnitID];
+          if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
+          if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
+          return !isClosed(log.Status);
+        }).length;
+        var closedCount = maintenanceLogs.length ? (function(){
+          var count = 0;
+          maintenanceLogs.forEach(function(log){
+            var unit = unitsById[log.UnitID];
+            if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return;
+            if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return;
+            if (isClosed(log.Status)) count++;
+          });
+          return count;
+        })() : 0;
+
+        workOrderTabs.querySelector('[data-tab="open"]').textContent = "Open (" + openCount + ")";
+        workOrderTabs.querySelector('[data-tab="closed"]').textContent = "Closed (" + closedCount + ")";
+
+        workOrderList.innerHTML = "";
+        if (!scoped.length){
+          workOrderList.innerHTML = "<p>No " + activeWoTab + " work orders" + (activeFloorId || activeClientId ? " for this selection." : ".") + "</p>";
+          return;
+        }
+
+        scoped.forEach(function(log){
+          var unit = unitsById[log.UnitID];
+          var unitLabel = unit ? ("Unit " + (unit.UnitNumber || unit.UnitID)) : ("Unit " + (log.UnitID || "—"));
+
+          var item = document.createElement("div");
+          item.className = "wo-item";
+
+          var top = document.createElement("div");
+          top.className = "wo-top";
+          var issueSpan = document.createElement("span");
+          issueSpan.textContent = WO_ISSUE_LABELS[log.IssueType] || log.IssueType || "Issue";
+          var statusSpan = document.createElement("span");
+          statusSpan.className = "wo-status " + (WO_STATUS_CLASS[log.Status] || "wo-status-rep");
+          statusSpan.textContent = WO_STATUS_LABELS[log.Status] || log.Status || "";
+          top.appendChild(issueSpan);
+          top.appendChild(statusSpan);
+
+          var desc = document.createElement("div");
+          desc.className = "wo-desc";
+          desc.textContent = log.Description || "";
+
+          var meta = document.createElement("div");
+          meta.className = "wo-meta";
+          var reportedDate = log.DateReported ? new Date(log.DateReported).toLocaleDateString() : "—";
+          meta.textContent = unitLabel + " · Reported " + reportedDate + (log.ReportedBy ? " by " + log.ReportedBy : "");
+
+          item.appendChild(top);
+          if (log.Description) item.appendChild(desc);
+          item.appendChild(meta);
+          workOrderList.appendChild(item);
+        });
+      }
+
+      workOrderTabs.addEventListener("click", function(e){
+        var btn = e.target.closest(".wo-tab");
+        if (!btn) return;
+        activeWoTab = btn.dataset.tab;
+        workOrderTabs.querySelectorAll(".wo-tab").forEach(function(b){ b.classList.toggle("active", b === btn); });
+        renderWorkOrders();
+      });
 
       function setFloorFilter(floorId){
         activeFloorId = floorId;
-        var expr = floorId ? "FloorID = '" + floorId.replace(/'/g, "''") + "'" : "1=1";
-        floorScopedLayers.forEach(function(l){ l.definitionExpression = expr; });
-
-        // Reflect the active choice in the floor button styling.
-        var btns = floorButtons.querySelectorAll(".floor-btn");
-        btns.forEach(function(btn){
-          btn.classList.toggle("active", btn.dataset.floorId === (floorId || ""));
-        });
+        applyFilters();
       }
 
       function showFloorPicker(structureId){
@@ -299,6 +468,12 @@
         // the view that actually avoids stacked units/rooms/routes.
         setFloorFilter(floors[0].FloorID);
       }
+
+      clientSelect.addEventListener("change", function(){
+        activeClientId = clientSelect.value || null;
+        viewingLine.textContent = "Viewing: " + (clientSelect.options[clientSelect.selectedIndex].textContent);
+        applyFilters();
+      });
 
       view = new MapView({
         container: "mapContainer",
@@ -341,6 +516,17 @@
         layerToggles.appendChild(wrapper);
       });
 
+      // The Clients table (a non-spatial table on the same FeatureServer)
+      // and the Units-to-ClientID mapping aren't map layers, so they're
+      // queried directly over REST rather than through a FeatureLayer.
+      function queryTable(index, params){
+        var url = new URL(baseUrl + "/" + index + "/query");
+        Object.keys(params).forEach(function(k){ url.searchParams.set(k, params[k]); });
+        url.searchParams.set("token", token);
+        url.searchParams.set("f", "json");
+        return fetch(url.toString()).then(function(res){ return res.json(); });
+      }
+
       showMapStatus("Loading properties…");
 
       view.when(function(){
@@ -354,11 +540,24 @@
             where: "1=1",
             outFields: ["FloorID", "StructureID", "FloorNumber"],
             returnGeometry: false
+          }),
+          queryTable(7, { where: "1=1", outFields: "ClientID,ClientName" }),
+          unitsLayer.queryFeatures({
+            where: "1=1",
+            outFields: ["UnitID", "ClientID", "FloorID", "UnitNumber", "UnitName"],
+            returnGeometry: false
+          }),
+          queryTable(9, {
+            where: "1=1",
+            outFields: "UnitID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
           })
         ]);
       }).then(function(results){
         var structuresResult = results[0];
         var floorsResult = results[1];
+        var clientsResult = results[2];
+        var allUnitsResult = results[3];
+        var maintenanceLogResult = results[4];
 
         // Group floors by structure, sorted low-to-high, for the floor
         // picker shown once a building is selected.
@@ -369,6 +568,33 @@
         });
         Object.keys(floorsByStructure).forEach(function(sid){
           floorsByStructure[sid].sort(function(a, b){ return a.FloorNumber - b.FloorNumber; });
+        });
+
+        // Build the UnitID -> {ClientID, FloorID, UnitNumber, UnitName}
+        // lookup used for the client filter (Rooms/Evacuation Routes only
+        // carry UnitID, not ClientID) and for scoping work orders by
+        // floor/client (MaintenanceLog only carries UnitID).
+        allUnitsResult.features.forEach(function(f){
+          var attrs = f.attributes;
+          unitsById[attrs.UnitID] = attrs;
+          if (attrs.ClientID){
+            var list = unitIdsByClient[attrs.ClientID] || (unitIdsByClient[attrs.ClientID] = []);
+            list.push(attrs.UnitID);
+          }
+        });
+
+        maintenanceLogs = (maintenanceLogResult.features || []).map(function(f){ return f.attributes; });
+
+        // Populate the client dropdown from the Clients table.
+        var clientFeatures = (clientsResult.features || []).slice().sort(function(a, b){
+          return (a.attributes.ClientName || "").localeCompare(b.attributes.ClientName || "");
+        });
+        clientFeatures.forEach(function(f){
+          var attrs = f.attributes;
+          var option = document.createElement("option");
+          option.value = attrs.ClientID;
+          option.textContent = attrs.ClientName || attrs.ClientID;
+          clientSelect.appendChild(option);
         });
 
         hideMapStatus();
@@ -409,6 +635,9 @@
 
           bookmarkList.appendChild(btn);
         });
+
+        // Show all open work orders by default, before any building/client is picked.
+        renderWorkOrders();
 
         // Zoom to the full extent of all structures on first load.
         return structuresLayer.queryExtent();
