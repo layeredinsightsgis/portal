@@ -147,6 +147,7 @@
   .edit-actions button{padding:7px 12px; font-size:13px;}
   #editUnitError{color:#b3413a; font-size:12px; min-height:16px; margin-bottom:4px;}
   #editUnitSaved{color:#2f7d5a; font-size:12px; min-height:16px; margin-bottom:4px;}
+  .active-tool{background:var(--accent) !important; color:var(--accent-ink) !important;}
 
   /* ---- layout guide dropdown ---- */
   #layoutGuideWrap{position:relative;}
@@ -358,7 +359,7 @@
       </div>
       <form id="editUnitForm">
         <label for="editUnitNumber">Unit Number</label>
-        <input type="text" id="editUnitNumber" disabled>
+        <input type="text" id="editUnitNumber">
         <label for="editUnitName">Unit Name</label>
         <input type="text" id="editUnitName">
         <label for="editUnitStatus">Status</label>
@@ -490,8 +491,9 @@
       "esri/config",
       "esri/Map",
       "esri/views/MapView",
-      "esri/layers/FeatureLayer"
-    ], function(esriConfig, Map, MapView, FeatureLayer){
+      "esri/layers/FeatureLayer",
+      "esri/widgets/Measurement"
+    ], function(esriConfig, Map, MapView, FeatureLayer, Measurement){
 
       // A single app token, good for both the basemap styles service and
       // the private Units/Structures/Floors feature layers -- this
@@ -917,13 +919,40 @@
 
       // Clicking a Unit opens the edit panel (in addition to its normal
       // popup) -- hitTest is scoped to unitsLayer only so clicking a
-      // Structure/Room/etc. doesn't trigger it.
+      // Structure/Room/etc. doesn't trigger it. Suppressed while the
+      // measurement tool is active so a click meant to place a measurement
+      // point doesn't also pop open the Edit Unit panel underneath it.
       view.on("click", function(event){
+        if (measurement.visible) return;
         view.hitTest(event, { include: unitsLayer }).then(function(response){
           var result = response.results && response.results[0];
           if (result && result.graphic) openEditPanel(result.graphic.attributes);
         });
       });
+
+      // ---- Measurement tool (distance + area, toggle via the button) ----
+      var measurement = new Measurement({ view: view, activeTool: null, visible: false });
+      view.ui.add(measurement, "top-right");
+
+      var measureBtn = document.createElement("button");
+      measureBtn.className = "esri-widget esri-widget--button esri-interactive";
+      measureBtn.type = "button";
+      measureBtn.title = "Measure distance or area";
+      measureBtn.style.fontSize = "16px";
+      measureBtn.textContent = "\u{1F4CF}"; // 📏
+      measureBtn.addEventListener("click", function(){
+        if (measurement.visible){
+          measurement.clear();
+          measurement.activeTool = null;
+          measurement.visible = false;
+          measureBtn.classList.remove("active-tool");
+        } else {
+          measurement.visible = true;
+          measurement.activeTool = "distance";
+          measureBtn.classList.add("active-tool");
+        }
+      });
+      view.ui.add(measureBtn, "top-right");
 
       // Sidebar checkboxes -- one per layer, user-controlled rather than
       // toggled automatically by zoom scale.
@@ -1024,6 +1053,7 @@
 
         var updatedAttrs = {};
         updatedAttrs[unitsLayer.objectIdField] = editingObjectId;
+        updatedAttrs.UnitNumber = editUnitNumber.value || null;
         updatedAttrs.UnitName = editUnitName.value || null;
         updatedAttrs.Status = editUnitStatus.value;
         updatedAttrs.ClientID = editUnitClient.value || null;
@@ -1067,6 +1097,7 @@
               }
             }
 
+            unit.UnitNumber = updatedAttrs.UnitNumber;
             unit.UnitName = updatedAttrs.UnitName;
             unit.Status = updatedAttrs.Status;
             unit.ClientID = updatedAttrs.ClientID;
