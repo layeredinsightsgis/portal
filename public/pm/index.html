@@ -947,8 +947,10 @@
           measurement.visible = false;
           measureBtn.classList.remove("active-tool");
         } else {
+          // Leave activeTool unset (null) so the widget opens on its own
+          // Distance/Area picker screen instead of jumping straight into
+          // one tool -- forcing activeTool here skips that choice.
           measurement.visible = true;
-          measurement.activeTool = "distance";
           measureBtn.classList.add("active-tool");
         }
       });
