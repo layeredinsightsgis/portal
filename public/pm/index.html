@@ -100,6 +100,27 @@
   .wo-status-wip{background:#e4efec; color:#1d4a3e;}
   .wo-status-hld{background:#f3e7e1; color:#8a5a46;}
   .wo-status-cmp{background:#e3f3ea; color:#2f7d5a;}
+  .wo-complete-btn{
+    margin-top:6px; width:100%; background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
+    font-size:11px; padding:6px 8px;
+  }
+  .section-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
+  .section-head h2{margin-bottom:0;}
+  .add-btn{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:4px 9px; font-size:11px; font-weight:600;}
+  .mini-form{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line);}
+  .mini-form label{font-size:11px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); display:block; margin:8px 0 4px;}
+  .mini-form input, .mini-form select, .mini-form textarea{
+    width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:12.5px;
+    font-family:inherit; background:var(--bg); color:var(--ink); resize:vertical;
+  }
+  .mini-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:8px;}
+  .mini-actions button{padding:6px 10px; font-size:12px;}
+  .mini-error{color:#b3413a; font-size:11px; min-height:14px; margin-top:4px;}
+  #mepSection{margin-top:20px; padding-top:16px; border-top:1px solid var(--line);}
+  #mepList p{font-size:12px; color:var(--ink-faint); margin:0;}
+  .mep-item{background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; font-size:12px;}
+  .mep-item .mep-top{font-weight:600; margin-bottom:2px;}
+  .mep-item .mep-meta{color:var(--ink-faint); font-size:11px;}
   #mapContainer{flex:1; position:relative;}
   #mapStatus{
     position:absolute; top:12px; left:12px; z-index:10; background:var(--surface); border:1px solid var(--line);
@@ -177,13 +198,67 @@
     </div>
     <h2>Properties</h2>
     <div id="bookmarkList">Loading…</div>
+    <div id="mepSection">
+      <div class="section-head">
+        <h2>Vendor Contacts</h2>
+        <button type="button" class="add-btn" id="addMepBtn">+ New</button>
+      </div>
+      <div id="mepList"><p>Select a building below to see its vendor contacts.</p></div>
+      <form id="addMepForm" class="mini-form" hidden>
+        <label for="mepTrade">Trade</label>
+        <input type="text" id="mepTrade" placeholder="e.g. Electrical">
+        <label for="mepVendorName">Vendor Name</label>
+        <input type="text" id="mepVendorName">
+        <label for="mepContactName">Contact Name</label>
+        <input type="text" id="mepContactName">
+        <label for="mepPhone">Phone</label>
+        <input type="text" id="mepPhone">
+        <label for="mepEmail">Email</label>
+        <input type="email" id="mepEmail">
+        <label for="mepNotes">Notes</label>
+        <textarea id="mepNotes" rows="2"></textarea>
+        <div id="mepAddError" class="mini-error"></div>
+        <div class="mini-actions">
+          <button type="button" id="mepAddCancel">Cancel</button>
+          <button type="submit" class="primary" id="mepAddSave">Add</button>
+        </div>
+      </form>
+    </div>
     <div id="workOrderSection">
-      <h2>Work Orders</h2>
+      <div class="section-head">
+        <h2>Work Orders</h2>
+        <button type="button" class="add-btn" id="addWorkOrderBtn">+ New</button>
+      </div>
       <div id="workOrderTabs">
         <button type="button" class="wo-tab active" data-tab="open">Open</button>
         <button type="button" class="wo-tab" data-tab="closed">Closed</button>
       </div>
+      <div id="woActionError" class="mini-error"></div>
       <div id="workOrderList"><p>Loading…</p></div>
+      <form id="addWorkOrderForm" class="mini-form" hidden>
+        <label for="woUnitSelect">Unit</label>
+        <select id="woUnitSelect"></select>
+        <label for="woIssueType">Issue Type</label>
+        <select id="woIssueType">
+          <option value="ELE">Electrical</option>
+          <option value="PLU">Plumbing</option>
+          <option value="HVAC">Heating/Cooling</option>
+          <option value="MINCON">Minor Construction</option>
+          <option value="MAJCON">Major Construction</option>
+          <option value="ACC">Access Controls</option>
+          <option value="FIRSYS">Fire System</option>
+          <option value="DORWIN">Doors/Windows</option>
+        </select>
+        <label for="woDescription">Description</label>
+        <textarea id="woDescription" rows="2"></textarea>
+        <label for="woReportedBy">Reported By</label>
+        <input type="text" id="woReportedBy">
+        <div id="woAddError" class="mini-error"></div>
+        <div class="mini-actions">
+          <button type="button" id="woAddCancel">Cancel</button>
+          <button type="submit" class="primary" id="woAddSave">Add</button>
+        </div>
+      </form>
     </div>
   </div>
   <div id="mapContainer">
@@ -236,6 +311,26 @@
   var viewingLine = document.getElementById('viewingLine');
   var workOrderTabs = document.getElementById('workOrderTabs');
   var workOrderList = document.getElementById('workOrderList');
+  var woActionError = document.getElementById('woActionError');
+  var addWorkOrderBtn = document.getElementById('addWorkOrderBtn');
+  var addWorkOrderForm = document.getElementById('addWorkOrderForm');
+  var woUnitSelect = document.getElementById('woUnitSelect');
+  var woIssueType = document.getElementById('woIssueType');
+  var woDescription = document.getElementById('woDescription');
+  var woReportedBy = document.getElementById('woReportedBy');
+  var woAddError = document.getElementById('woAddError');
+  var woAddCancel = document.getElementById('woAddCancel');
+  var mepList = document.getElementById('mepList');
+  var addMepBtn = document.getElementById('addMepBtn');
+  var addMepForm = document.getElementById('addMepForm');
+  var mepTrade = document.getElementById('mepTrade');
+  var mepVendorName = document.getElementById('mepVendorName');
+  var mepContactName = document.getElementById('mepContactName');
+  var mepPhone = document.getElementById('mepPhone');
+  var mepEmail = document.getElementById('mepEmail');
+  var mepNotes = document.getElementById('mepNotes');
+  var mepAddError = document.getElementById('mepAddError');
+  var mepAddCancel = document.getElementById('mepAddCancel');
   var editPanel = document.getElementById('editPanel');
   var editPanelClose = document.getElementById('editPanelClose');
   var editUnitForm = document.getElementById('editUnitForm');
@@ -355,8 +450,9 @@
       // filtering to the set of UnitIDs that belong to that client instead.
       var floorsByStructure = {};  // StructureID -> sorted [{FloorID, FloorNumber}, ...]
       var unitIdsByClient = {};    // ClientID -> [UnitID, ...]
-      var unitsById = {};          // UnitID -> {ClientID, FloorID, UnitNumber, UnitName}
+      var unitsById = {};          // UnitID -> {ClientID, FloorID, StructureID, UnitNumber, UnitName}
       var maintenanceLogs = [];    // all MaintenanceLog rows, filtered/rendered client-side
+      var mepContacts = [];        // all MEP_Contacts rows, filtered/rendered client-side
       var activeStructureId = null;
       var activeFloorId = null;    // null = "All floors"
       var activeClientId = null;   // null = "All clients"
@@ -403,6 +499,58 @@
         });
 
         renderWorkOrders();
+        renderMepContacts();
+      }
+
+      // MEP_Contacts ties to either a StructureID (building-wide vendor)
+      // or a UnitID (unit-specific vendor) -- scoped to whichever building
+      // is currently selected, same as the floor picker.
+      function renderMepContacts(){
+        mepList.innerHTML = "";
+        if (!activeStructureId){
+          mepList.innerHTML = "<p>Select a building below to see its vendor contacts.</p>";
+          return;
+        }
+
+        var scoped = mepContacts.filter(function(c){
+          if (c.StructureID === activeStructureId) return true;
+          var unit = c.UnitID && unitsById[c.UnitID];
+          return !!(unit && unit.StructureID === activeStructureId);
+        });
+
+        if (!scoped.length){
+          mepList.innerHTML = "<p>No vendor contacts on file for this building.</p>";
+          return;
+        }
+
+        scoped.forEach(function(c){
+          var unit = c.UnitID && unitsById[c.UnitID];
+          var scopeLabel = unit ? ("Unit " + (unit.UnitNumber || c.UnitID)) : "Building-wide";
+          var contactBits = [c.ContactName, c.Phone, c.Email].filter(Boolean).join(" · ");
+
+          var item = document.createElement("div");
+          item.className = "mep-item";
+
+          var top = document.createElement("div");
+          top.className = "mep-top";
+          top.textContent = (c.Trade || "Vendor") + (c.VendorName ? " — " + c.VendorName : "");
+
+          var meta = document.createElement("div");
+          meta.className = "mep-meta";
+          meta.textContent = scopeLabel + (contactBits ? " · " + contactBits : "");
+
+          item.appendChild(top);
+          item.appendChild(meta);
+
+          if (c.Notes){
+            var notes = document.createElement("div");
+            notes.className = "mep-meta";
+            notes.textContent = c.Notes;
+            item.appendChild(notes);
+          }
+
+          mepList.appendChild(item);
+        });
       }
 
       // MaintenanceLog only carries a UnitID (no FloorID/ClientID of its
@@ -475,8 +623,49 @@
           item.appendChild(top);
           if (log.Description) item.appendChild(desc);
           item.appendChild(meta);
+
+          if (activeWoTab !== "closed"){
+            var completeBtn = document.createElement("button");
+            completeBtn.type = "button";
+            completeBtn.className = "wo-complete-btn";
+            completeBtn.textContent = "Mark Completed";
+            completeBtn.addEventListener("click", function(){
+              markWorkOrderCompleted(log, completeBtn);
+            });
+            item.appendChild(completeBtn);
+          }
+
           workOrderList.appendChild(item);
         });
+      }
+
+      function markWorkOrderCompleted(log, btn){
+        woActionError.textContent = "";
+        if (btn){ btn.disabled = true; btn.textContent = "Saving…"; }
+
+        var resolvedAt = Date.now();
+        applyEdits(9, { updates: [{ attributes: { OBJECTID: log.OBJECTID, Status: "CMP", DateResolved: resolvedAt } }] })
+          .then(function(result){
+            if (result.error){
+              woActionError.textContent = "ArcGIS error " + result.error.code + ": " + result.error.message;
+              if (btn){ btn.disabled = false; btn.textContent = "Mark Completed"; }
+              return;
+            }
+            var updateResult = result.updateResults && result.updateResults[0];
+            if (!updateResult || !updateResult.success){
+              var msg = updateResult && updateResult.error ? (updateResult.error.description || updateResult.error.message) : ("Unexpected response: " + JSON.stringify(result));
+              woActionError.textContent = msg;
+              if (btn){ btn.disabled = false; btn.textContent = "Mark Completed"; }
+              return;
+            }
+            log.Status = "CMP";
+            log.DateResolved = resolvedAt;
+            renderWorkOrders();
+          })
+          .catch(function(err){
+            woActionError.textContent = "Save failed: " + err.message;
+            if (btn){ btn.disabled = false; btn.textContent = "Mark Completed"; }
+          });
       }
 
       workOrderTabs.addEventListener("click", function(e){
@@ -496,6 +685,8 @@
         activeStructureId = structureId;
         var floors = floorsByStructure[structureId] || [];
         floorButtons.innerHTML = "";
+
+        renderMepContacts();
 
         if (!floors.length){
           floorButtons.innerHTML = "<p>No floors on record for this building.</p>";
@@ -595,17 +786,18 @@
       }
 
       // Shared applyEdits helper -- geometry is never touched here (that
-      // stays in ArcGIS Pro); this only ever sends attribute updates.
-      // `updatesArray` must be the JSON array of edits itself (each item
-      // like {attributes: {...}}), not wrapped in another object -- the
-      // REST operation's "updates" param is that array, stringified.
-      function applyEdits(index, updatesArray){
+      // stays in ArcGIS Pro); this only ever sends attribute adds/updates.
+      // `edits` is {adds?, updates?, deletes?}, each the JSON array the
+      // REST operation expects for that param (each item like
+      // {attributes: {...}}) -- every key present gets its own
+      // stringified form param; a key left out is omitted entirely.
+      function applyEdits(index, edits){
         var url = baseUrl + "/" + index + "/applyEdits";
-        var body = new URLSearchParams({
-          f: "json",
-          token: token,
-          updates: JSON.stringify(updatesArray)
-        });
+        var params = { f: "json", token: token };
+        if (edits.adds) params.adds = JSON.stringify(edits.adds);
+        if (edits.updates) params.updates = JSON.stringify(edits.updates);
+        if (edits.deletes) params.deletes = JSON.stringify(edits.deletes);
+        var body = new URLSearchParams(params);
         return fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -651,7 +843,7 @@
         updatedAttrs.SqFt = editUnitSqFt.value === "" ? null : Number(editUnitSqFt.value);
         updatedAttrs.Notes = editUnitNotes.value || null;
 
-        applyEdits(1, [{ attributes: updatedAttrs }]).then(function(result){
+        applyEdits(1, { updates: [{ attributes: updatedAttrs }] }).then(function(result){
           // Surface whatever ArcGIS actually returned rather than a
           // guessed message -- a request-level failure (bad token, no
           // write permission on the OAuth app, etc.) comes back as a
@@ -686,6 +878,141 @@
         });
       });
 
+      // ---- Add Work Order ----
+      addWorkOrderBtn.addEventListener("click", function(){
+        var showing = !addWorkOrderForm.hidden;
+        addWorkOrderForm.hidden = showing;
+        addWorkOrderBtn.textContent = showing ? "+ New" : "Cancel";
+      });
+
+      function resetAddWorkOrderForm(){
+        addWorkOrderForm.reset();
+        woAddError.textContent = "";
+        addWorkOrderForm.hidden = true;
+        addWorkOrderBtn.textContent = "+ New";
+      }
+
+      woAddCancel.addEventListener("click", resetAddWorkOrderForm);
+
+      addWorkOrderForm.addEventListener("submit", function(e){
+        e.preventDefault();
+        woAddError.textContent = "";
+
+        var unitId = woUnitSelect.value;
+        if (!unitId){
+          woAddError.textContent = "Select a unit.";
+          return;
+        }
+
+        var attrs = {
+          UnitID: Number(unitId),
+          IssueType: woIssueType.value,
+          Description: woDescription.value || null,
+          ReportedBy: woReportedBy.value || null,
+          Status: "REP",
+          DateReported: Date.now()
+        };
+
+        var saveBtn = document.getElementById("woAddSave");
+        saveBtn.disabled = true;
+
+        applyEdits(9, { adds: [{ attributes: attrs }] }).then(function(result){
+          if (result.error){
+            woAddError.textContent = "ArcGIS error " + (result.error.code || "") + ": " + (result.error.message || JSON.stringify(result.error));
+            saveBtn.disabled = false;
+            return;
+          }
+
+          var addResult = result.addResults && result.addResults[0];
+          if (!addResult || !addResult.success){
+            var msg = (addResult && addResult.error && (addResult.error.description || addResult.error.message))
+              || ("Unexpected response: " + JSON.stringify(result));
+            woAddError.textContent = msg;
+            saveBtn.disabled = false;
+            return;
+          }
+
+          attrs.OBJECTID = addResult.objectId;
+          maintenanceLogs.push(attrs);
+          renderWorkOrders();
+          saveBtn.disabled = false;
+          resetAddWorkOrderForm();
+        }).catch(function(err){
+          woAddError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
+          saveBtn.disabled = false;
+        });
+      });
+
+      // ---- Add Vendor Contact (MEP_Contacts) ----
+      addMepBtn.addEventListener("click", function(){
+        if (!activeStructureId){
+          mepAddError.textContent = "Select a building first.";
+          return;
+        }
+        var showing = !addMepForm.hidden;
+        addMepForm.hidden = showing;
+        addMepBtn.textContent = showing ? "+ New" : "Cancel";
+      });
+
+      function resetAddMepForm(){
+        addMepForm.reset();
+        mepAddError.textContent = "";
+        addMepForm.hidden = true;
+        addMepBtn.textContent = "+ New";
+      }
+
+      mepAddCancel.addEventListener("click", resetAddMepForm);
+
+      addMepForm.addEventListener("submit", function(e){
+        e.preventDefault();
+        mepAddError.textContent = "";
+
+        if (!activeStructureId){
+          mepAddError.textContent = "Select a building first.";
+          return;
+        }
+
+        var attrs = {
+          StructureID: activeStructureId,
+          UnitID: null,
+          Trade: mepTrade.value || null,
+          VendorName: mepVendorName.value || null,
+          ContactName: mepContactName.value || null,
+          Phone: mepPhone.value || null,
+          Email: mepEmail.value || null,
+          Notes: mepNotes.value || null
+        };
+
+        var saveBtn = document.getElementById("mepAddSave");
+        saveBtn.disabled = true;
+
+        applyEdits(8, { adds: [{ attributes: attrs }] }).then(function(result){
+          if (result.error){
+            mepAddError.textContent = "ArcGIS error " + (result.error.code || "") + ": " + (result.error.message || JSON.stringify(result.error));
+            saveBtn.disabled = false;
+            return;
+          }
+
+          var addResult = result.addResults && result.addResults[0];
+          if (!addResult || !addResult.success){
+            var msg = (addResult && addResult.error && (addResult.error.description || addResult.error.message))
+              || ("Unexpected response: " + JSON.stringify(result));
+            mepAddError.textContent = msg;
+            saveBtn.disabled = false;
+            return;
+          }
+
+          attrs.OBJECTID = addResult.objectId;
+          mepContacts.push(attrs);
+          renderMepContacts();
+          saveBtn.disabled = false;
+          resetAddMepForm();
+        }).catch(function(err){
+          mepAddError.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
+          saveBtn.disabled = false;
+        });
+      });
+
       showMapStatus("Loading properties…");
 
       view.when(function(){
@@ -703,12 +1030,16 @@
           queryTable(7, { where: "1=1", outFields: "ClientID,ClientName" }),
           unitsLayer.queryFeatures({
             where: "1=1",
-            outFields: ["UnitID", "ClientID", "FloorID", "UnitNumber", "UnitName"],
+            outFields: ["UnitID", "ClientID", "FloorID", "StructureID", "UnitNumber", "UnitName"],
             returnGeometry: false
           }),
           queryTable(9, {
             where: "1=1",
-            outFields: "UnitID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
+            outFields: "OBJECTID,UnitID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
+          }),
+          queryTable(8, {
+            where: "1=1",
+            outFields: "OBJECTID,StructureID,UnitID,Trade,VendorName,ContactName,Phone,Email,Notes"
           })
         ]);
       }).then(function(results){
@@ -717,6 +1048,7 @@
         var clientsResult = results[2];
         var allUnitsResult = results[3];
         var maintenanceLogResult = results[4];
+        var mepContactsResult = results[5];
 
         // Group floors by structure, sorted low-to-high, for the floor
         // picker shown once a building is selected.
@@ -743,6 +1075,19 @@
         });
 
         maintenanceLogs = (maintenanceLogResult.features || []).map(function(f){ return f.attributes; });
+        mepContacts = (mepContactsResult.features || []).map(function(f){ return f.attributes; });
+
+        // Populate the "Unit" dropdown on the add-work-order form, sorted
+        // by unit number.
+        var unitOptions = Object.keys(unitsById).map(function(id){ return unitsById[id]; }).sort(function(a, b){
+          return String(a.UnitNumber || "").localeCompare(String(b.UnitNumber || ""), undefined, { numeric: true });
+        });
+        unitOptions.forEach(function(u){
+          var option = document.createElement("option");
+          option.value = u.UnitID;
+          option.textContent = "Unit " + (u.UnitNumber || u.UnitID) + (u.UnitName ? " — " + u.UnitName : "");
+          woUnitSelect.appendChild(option);
+        });
 
         // Populate the client dropdown from the Clients table.
         var clientFeatures = (clientsResult.features || []).slice().sort(function(a, b){
@@ -797,6 +1142,7 @@
 
         // Show all open work orders by default, before any building/client is picked.
         renderWorkOrders();
+        renderMepContacts();
 
         // Zoom to the full extent of all structures on first load.
         return structuresLayer.queryExtent();
