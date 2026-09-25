@@ -596,12 +596,15 @@
 
       // Shared applyEdits helper -- geometry is never touched here (that
       // stays in ArcGIS Pro); this only ever sends attribute updates.
-      function applyEdits(index, updates){
+      // `updatesArray` must be the JSON array of edits itself (each item
+      // like {attributes: {...}}), not wrapped in another object -- the
+      // REST operation's "updates" param is that array, stringified.
+      function applyEdits(index, updatesArray){
         var url = baseUrl + "/" + index + "/applyEdits";
         var body = new URLSearchParams({
           f: "json",
           token: token,
-          updates: JSON.stringify(updates)
+          updates: JSON.stringify(updatesArray)
         });
         return fetch(url, {
           method: "POST",
@@ -648,7 +651,7 @@
         updatedAttrs.SqFt = editUnitSqFt.value === "" ? null : Number(editUnitSqFt.value);
         updatedAttrs.Notes = editUnitNotes.value || null;
 
-        applyEdits(1, { updates: [{ attributes: updatedAttrs }] }).then(function(result){
+        applyEdits(1, [{ attributes: updatedAttrs }]).then(function(result){
           // Surface whatever ArcGIS actually returned rather than a
           // guessed message -- a request-level failure (bad token, no
           // write permission on the OAuth app, etc.) comes back as a
