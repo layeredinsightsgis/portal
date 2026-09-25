@@ -908,11 +908,42 @@
         });
       }
 
+      // Zoom the map to whatever the current client selection actually
+      // covers. A specific client zooms to the extent of that client's
+      // units; "All clients" zooms back out to the full portfolio. If a
+      // client has no units yet, there's nothing to zoom to -- leave the
+      // view where it is rather than jumping somewhere meaningless.
+      function zoomToClientExtent(){
+        var extentQuery;
+        if (activeClientId){
+          extentQuery = unitsLayer.queryExtent({ where: "ClientID = " + sqlQuote(activeClientId) });
+        } else {
+          extentQuery = structuresLayer.queryExtent();
+        }
+        console.log("zoomToClientExtent: querying", activeClientId ? "unitsLayer for ClientID=" + activeClientId : "structuresLayer (all)");
+        extentQuery.then(function(extentResult){
+          console.log("zoomToClientExtent result:", extentResult, "count:", extentResult && extentResult.count, "extent:", extentResult && extentResult.extent);
+          if (extentResult && extentResult.extent){
+            view.goTo(extentResult.extent.expand(1.3)).then(function(){
+              console.log("zoomToClientExtent: goTo resolved");
+            }).catch(function(goErr){
+              console.log("zoomToClientExtent: goTo rejected", goErr);
+            });
+          } else {
+            console.log("zoomToClientExtent: no extent to zoom to (0 features or null extent)");
+          }
+        }).catch(function(err){
+          console.log("zoomToClientExtent: queryExtent error", err);
+          showMapStatus("Could not zoom to client: " + (err && err.message ? err.message : err));
+        });
+      }
+
       clientSelect.addEventListener("change", function(){
         activeClientId = clientSelect.value || null;
         viewingLine.textContent = "Viewing: " + (clientSelect.options[clientSelect.selectedIndex].textContent);
         applyFilters();
         refreshBookmarkRelevance();
+        zoomToClientExtent();
       });
 
       view = new MapView({
