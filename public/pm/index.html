@@ -144,6 +144,37 @@
   .edit-actions button{padding:7px 12px; font-size:13px;}
   #editUnitError{color:#b3413a; font-size:12px; min-height:16px; margin-bottom:4px;}
   #editUnitSaved{color:#2f7d5a; font-size:12px; min-height:16px; margin-bottom:4px;}
+
+  /* ---- layout guide dropdown ---- */
+  #layoutGuideWrap{position:relative;}
+  #layoutGuideBtn{
+    display:flex; align-items:center; gap:6px; background:var(--bg); border:1px solid var(--line);
+    color:var(--ink-faint); font-size:12.5px; font-weight:600; padding:7px 12px;
+  }
+  #layoutGuideBtn:hover{border-color:var(--accent); color:var(--accent);}
+  #layoutGuideBtn .caret{font-size:10px; transition:transform .15s ease;}
+  #layoutGuideBtn.open .caret{transform:rotate(180deg);}
+  #layoutGuidePanel{
+    position:absolute; top:calc(100% + 8px); left:0; z-index:30; width:360px; max-width:calc(100vw - 40px);
+    background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px 20px;
+    box-shadow:0 8px 24px rgba(0,0,0,.14);
+  }
+  #layoutGuidePanel h3{font-size:14px; margin-bottom:4px;}
+  #layoutGuidePanel .lg-sub{font-size:12px; color:var(--ink-faint); margin:0 0 14px;}
+  .lg-chain{list-style:none; margin:0 0 16px; padding:0; border-left:2px solid var(--line); padding-left:14px;}
+  .lg-chain li{position:relative; margin-bottom:12px;}
+  .lg-chain li::before{
+    content:""; position:absolute; left:-18px; top:5px; width:8px; height:8px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--surface); box-shadow:0 0 0 2px var(--accent);
+  }
+  .lg-chain li:last-child{margin-bottom:0;}
+  .lg-term{font-weight:600; font-size:13px; display:block;}
+  .lg-def{font-size:12px; color:var(--ink-faint); margin-top:2px; line-height:1.45;}
+  .lg-related{border-top:1px dashed var(--line); padding-top:12px;}
+  .lg-related h4{font-size:11px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); margin:0 0 8px; font-family:inherit; font-weight:600;}
+  .lg-related dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:4px 10px;}
+  .lg-related dt{font-size:12px; font-weight:600; white-space:nowrap;}
+  .lg-related dd{font-size:12px; color:var(--ink-faint); margin:0;}
 </style>
 </head>
 <body>
@@ -154,6 +185,40 @@
     <div class="brand-text">
       <span class="name">Layered Insights GIS</span>
       <span class="sub">Property Manager</span>
+    </div>
+  </div>
+  <div id="layoutGuideWrap">
+    <button type="button" id="layoutGuideBtn">Layout Guide <span class="caret">&#9662;</span></button>
+    <div id="layoutGuidePanel" hidden>
+      <h3>How the map is organized</h3>
+      <p class="lg-sub">Each layer nests inside the one above it.</p>
+      <ul class="lg-chain">
+        <li>
+          <span class="lg-term">Structure</span>
+          <span class="lg-def">An entire building. This is what you pick from the Properties list.</span>
+        </li>
+        <li>
+          <span class="lg-term">Floor</span>
+          <span class="lg-def">A level of that Structure. A floor may span the whole footprint, or hold only a handful of Units and Rooms &mdash; that's why picking a floor filters what's shown.</span>
+        </li>
+        <li>
+          <span class="lg-term">Unit</span>
+          <span class="lg-def">A managed space within a floor &mdash; the area actually assigned to a Client and tracked for status, square footage, and condition.</span>
+        </li>
+        <li>
+          <span class="lg-term">Room</span>
+          <span class="lg-def">A subdivision within a Unit &mdash; the finest-grained space on the map.</span>
+        </li>
+      </ul>
+      <div class="lg-related">
+        <h4>Related, not nested</h4>
+        <dl>
+          <dt>Evacuation Routes</dt><dd>Life-safety paths, scoped per floor like Units and Rooms.</dd>
+          <dt>Client</dt><dd>Who a Unit is leased or assigned to.</dd>
+          <dt>Vendor Contacts</dt><dd>Tied to a Structure (building-wide) or a specific Unit.</dd>
+          <dt>Work Orders</dt><dd>Maintenance issues logged against a Unit.</dd>
+        </dl>
+      </div>
     </div>
   </div>
   <div class="session" id="sessionBar" hidden>
@@ -299,6 +364,21 @@
 (function(){
   var loginView = document.getElementById('loginView');
   var mapView = document.getElementById('mapView');
+  var layoutGuideBtn = document.getElementById('layoutGuideBtn');
+  var layoutGuidePanel = document.getElementById('layoutGuidePanel');
+
+  layoutGuideBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var isOpen = !layoutGuidePanel.hidden;
+    layoutGuidePanel.hidden = isOpen;
+    layoutGuideBtn.classList.toggle('open', !isOpen);
+  });
+  document.addEventListener('click', function(e){
+    if (layoutGuidePanel.hidden) return;
+    if (layoutGuidePanel.contains(e.target) || layoutGuideBtn.contains(e.target)) return;
+    layoutGuidePanel.hidden = true;
+    layoutGuideBtn.classList.remove('open');
+  });
   var sessionBar = document.getElementById('sessionBar');
   var pmName = document.getElementById('pmName');
   var loginForm = document.getElementById('loginForm');
