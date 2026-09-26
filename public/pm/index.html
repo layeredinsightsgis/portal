@@ -729,16 +729,16 @@
         renderMepContacts();
       }
 
-      // MEP_Contacts ties to either a StructureID (building-wide vendor)
-      // or a UnitID (unit-specific vendor) -- scoped to whichever building
-      // is currently selected, same as the floor picker. It can also carry
-      // a ClientID, marking it as one client's own preferred vendor rather
-      // than something shared by everyone in the building (blank ClientID
-      // = shared/building-wide). When a specific client is active, the
-      // list narrows to that client's own vendors plus shared ones -- the
-      // same thing that client would eventually see in a client-scoped
-      // view -- so, e.g., Sharon never sees another client's vendor just
-      // because they happen to share a building.
+      // MEP_Contacts ties to a StructureID (building-wide vendor), a UnitID
+      // (unit-specific vendor), or neither (a client's own vendor, portable
+      // across every property that client manages -- see the Add Vendor
+      // form). It can also carry a ClientID, marking it as one client's own
+      // preferred vendor rather than something shared by everyone in the
+      // building (blank ClientID = shared/building-wide). When a specific
+      // client is active, the list narrows to that client's own vendors
+      // plus shared ones -- the same thing that client would eventually see
+      // in a client-scoped view -- so, e.g., Sharon never sees another
+      // client's vendor just because they happen to share a building.
       function clientNameFor(clientId){
         var match = clients.filter(function(c){ return c.ClientID === clientId; })[0];
         return match ? (match.ClientName || clientId) : clientId;
@@ -752,18 +752,27 @@
         }
 
         var scoped = mepContacts.filter(function(c){
-          var inBuilding = c.StructureID === activeStructureId;
-          if (!inBuilding){
-            var unit = c.UnitID && unitsById[c.UnitID];
+          var inBuilding;
+          if (c.StructureID){
+            inBuilding = c.StructureID === activeStructureId;
+          } else if (c.UnitID){
+            var unit = unitsById[c.UnitID];
             inBuilding = !!(unit && unit.StructureID === activeStructureId);
+          } else if (c.ClientID){
+            // Portable client vendor, no building/unit tie -- relevant to
+            // this building whenever that client actually manages units
+            // here, same as the bookmark-relevance check.
+            inBuilding = structureHasClientUnits(activeStructureId, c.ClientID);
+          } else {
+            inBuilding = false; // shouldn't happen -- every vendor needs at least one of these
           }
           if (!inBuilding) return false;
 
           // "Whose vendor" filter: with no client selected (god mode, all
-          // clients), everything in the building shows. With a client
-          // selected, only that client's own vendors and shared/unassigned
-          // ones show -- another client's vendor is excluded even though
-          // it's in the same building.
+          // clients), everything relevant to the building shows. With a
+          // client selected, only that client's own vendors and
+          // shared/unassigned ones show -- another client's vendor is
+          // excluded even though it's in the same building.
           if (!activeClientId) return true;
           return !c.ClientID || c.ClientID === activeClientId;
         });
@@ -775,7 +784,9 @@
 
         scoped.forEach(function(c){
           var unit = c.UnitID && unitsById[c.UnitID];
-          var scopeLabel = unit ? ("Unit " + (unit.UnitNumber || c.UnitID)) : "Building-wide";
+          var scopeLabel = unit ? ("Unit " + (unit.UnitNumber || c.UnitID))
+            : c.StructureID ? "Building-wide"
+            : "All properties";
           var ownerLabel = c.ClientID ? clientNameFor(c.ClientID) : "Shared";
           var contactBits = [c.ContactName, c.Phone, c.Email].filter(Boolean).join(" · ");
 
@@ -1425,11 +1436,16 @@
       });
 
       // ---- Add Vendor Contact (MEP_Contacts) ----
+      // A vendor needs *something* to attach it to a client's actual
+      // portfolio: either a building (StructureID -- shared/building-wide,
+      // or a client's vendor scoped to just this one building) or a client
+      // assignment with no building at all (a client's own vendor,
+      // portable across every property they manage, not tied to any one
+      // building). So opening the form no longer requires a building
+      // selected -- only submitting with neither a building nor a client
+      // chosen is actually invalid, since that vendor would have nowhere
+      // to show up.
       addMepBtn.addEventListener("click", function(){
-        if (!activeStructureId){
-          mepAddError.textContent = "Select a building first.";
-          return;
-        }
         var showing = !addMepForm.hidden;
         addMepForm.hidden = showing;
         addMepBtn.textContent = showing ? "+ New" : "Cancel";
@@ -1448,13 +1464,13 @@
         e.preventDefault();
         mepAddError.textContent = "";
 
-        if (!activeStructureId){
-          mepAddError.textContent = "Select a building first.";
+        if (!activeStructureId && !mepClient.value){
+          mepAddError.textContent = "Select a building, or assign this vendor to a client.";
           return;
         }
 
         var attrs = {
-          StructureID: activeStructureId,
+          StructureID: activeStructureId || null, // null when this is a client's portable vendor
           UnitID: null,
           ClientID: mepClient.value || null, // blank = shared/building-wide
           Trade: mepTrade.value || null,
