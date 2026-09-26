@@ -172,7 +172,7 @@ function initMap(token, layerUrl, displayName){
         }),
         queryTable(9, {
           where: "1=1",
-          outFields: "OBJECTID,UnitID,StructureID,FloorID,RoomID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved,Severity"
+          outFields: "OBJECTID,UnitID,StructureID,FloorID,RoomID,DateReported,DateModified,IssueType,Description,ReportedBy,Status,DateResolved,Severity"
         }),
         queryTable(8, {
           where: "1=1",

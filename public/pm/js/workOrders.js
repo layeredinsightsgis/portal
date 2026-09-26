@@ -165,7 +165,8 @@ function buildWorkOrderEditForm(log) {
       Severity: severitySelect.value,
       Description: descTextarea.value || null,
       ReportedBy: reportedByInput.value || null,
-      Status: newStatus
+      Status: newStatus,
+      DateModified: Date.now()
     };
     if (newStatus === "CMP" && log.Status !== "CMP") {
       updatedAttrs.DateResolved = Date.now();
@@ -194,6 +195,7 @@ function buildWorkOrderEditForm(log) {
       log.Description = updatedAttrs.Description;
       log.ReportedBy = updatedAttrs.ReportedBy;
       log.Status = updatedAttrs.Status;
+      log.DateModified = updatedAttrs.DateModified;
       if (updatedAttrs.hasOwnProperty("DateResolved")) log.DateResolved = updatedAttrs.DateResolved;
       state.editingWorkOrderId = null;
       renderWorkOrders();
@@ -272,7 +274,11 @@ function renderWorkOrders() {
     var meta = document.createElement("div");
     meta.className = "wo-meta";
     var reportedDate = log.DateReported ? new Date(log.DateReported).toLocaleDateString() : "—";
-    meta.textContent = unitLabel + " · Reported " + reportedDate + (log.ReportedBy ? " by " + log.ReportedBy : "");
+    var metaText = unitLabel + " · Reported " + reportedDate + (log.ReportedBy ? " by " + log.ReportedBy : "");
+    if (log.DateModified && log.DateModified !== log.DateReported) {
+      metaText += " · Updated " + new Date(log.DateModified).toLocaleDateString();
+    }
+    meta.textContent = metaText;
     item.appendChild(top);
     if (log.Description) item.appendChild(desc);
     item.appendChild(meta);
@@ -313,7 +319,8 @@ function markWorkOrderCompleted(log, btn) {
       attributes: {
         OBJECTID: log.OBJECTID,
         Status: "CMP",
-        DateResolved: resolvedAt
+        DateResolved: resolvedAt,
+        DateModified: resolvedAt
       }
     }]
   }).then(function (result) {
@@ -337,6 +344,7 @@ function markWorkOrderCompleted(log, btn) {
     }
     log.Status = "CMP";
     log.DateResolved = resolvedAt;
+    log.DateModified = resolvedAt;
     renderWorkOrders();
   }).catch(function (err) {
     dom.woActionError.textContent = "Save failed: " + err.message;
