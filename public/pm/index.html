@@ -341,8 +341,28 @@
       <div id="woActionError" class="mini-error"></div>
       <div id="workOrderList"><p>Loading…</p></div>
       <form id="addWorkOrderForm" class="mini-form" hidden>
-        <label for="woUnitSelect">Unit</label>
-        <select id="woUnitSelect"></select>
+        <label for="woLevel">Applies To</label>
+        <select id="woLevel">
+          <option value="UNIT" selected>Unit</option>
+          <option value="STRUCTURE">Entire Building</option>
+          <option value="FLOOR">Floor</option>
+          <option value="ROOM">Room</option>
+        </select>
+        <div id="woStructureWrap" hidden>
+          <p id="woStructureNote" style="color:var(--ink-faint); font-size:12px; margin:0 0 10px;"></p>
+        </div>
+        <div id="woFloorWrap" hidden>
+          <label for="woFloorSelect">Floor</label>
+          <select id="woFloorSelect"></select>
+        </div>
+        <div id="woUnitWrap">
+          <label for="woUnitSelect">Unit</label>
+          <select id="woUnitSelect"></select>
+        </div>
+        <div id="woRoomWrap" hidden>
+          <label for="woRoomSelect">Room</label>
+          <select id="woRoomSelect"></select>
+        </div>
         <label for="woIssueType">Issue Type</label>
         <select id="woIssueType">
           <option value="ELE">Electrical</option>
@@ -449,7 +469,15 @@
   var woActionError = document.getElementById('woActionError');
   var addWorkOrderBtn = document.getElementById('addWorkOrderBtn');
   var addWorkOrderForm = document.getElementById('addWorkOrderForm');
+  var woLevel = document.getElementById('woLevel');
+  var woStructureWrap = document.getElementById('woStructureWrap');
+  var woStructureNote = document.getElementById('woStructureNote');
+  var woFloorWrap = document.getElementById('woFloorWrap');
+  var woFloorSelect = document.getElementById('woFloorSelect');
+  var woUnitWrap = document.getElementById('woUnitWrap');
   var woUnitSelect = document.getElementById('woUnitSelect');
+  var woRoomWrap = document.getElementById('woRoomWrap');
+  var woRoomSelect = document.getElementById('woRoomSelect');
   var woIssueType = document.getElementById('woIssueType');
   var woDescription = document.getElementById('woDescription');
   var woReportedBy = document.getElementById('woReportedBy');
@@ -674,6 +702,9 @@
       // Routes only carry UnitID, so filtering those by client means
       // filtering to the set of UnitIDs that belong to that client instead.
       var floorsByStructure = {};  // StructureID -> sorted [{FloorID, FloorNumber}, ...]
+      var floorsById = {};         // FloorID -> {StructureID, FloorNumber}
+      var structuresById = {};     // StructureID -> {StructureName, Address, ...}
+      var roomsById = {};          // RoomID -> {FloorID, UnitID, RoomNumber}
       var unitIdsByClient = {};    // ClientID -> [UnitID, ...]
       var unitsById = {};          // UnitID -> {ClientID, FloorID, StructureID, UnitNumber, UnitName}
       var maintenanceLogs = [];    // all MaintenanceLog rows, filtered/rendered client-side
@@ -854,23 +885,97 @@
         });
       }
 
-      // MaintenanceLog only carries a UnitID (no FloorID/ClientID of its
-      // own), so it's scoped by checking each log's UnitID against
-      // unitsById. Two scoping modes:
-      //  - A specific unit is open in the Edit panel (editingObjectId set):
-      //    show ONLY that unit's own work orders. A PM investigating one
-      //    unit doesn't want the whole floor's open issues mixed in -- that's
-      //    exactly the "extraneous data" problem flagged after testing.
-      //  - No unit open: fall back to the floor/client-level overview, same
-      //    as before, for browsing everything happening on a floor at once.
-      function workOrderInScope(log){
-        var unit = unitsById[log.UnitID];
-        if (editingObjectId !== null){
-          return !!(unit && unit.UnitID === editingUnitId);
+      // MaintenanceLog can attach at any level of the Structure/Floor/
+      // Unit/Room chain (2026-09-26) -- exactly one of those four ID
+      // fields is populated per row, chosen by where the problem actually
+      // originates (a broken elevator -> StructureID, several units
+      // losing power on one floor -> FloorID, a car-charger outlet ->
+      // RoomID, the common case -> UnitID). resolveWorkOrderContext works
+      // out the effective structure/floor/unit/client a log belongs to
+      // regardless of which field is actually populated, so the rest of
+      // the scoping logic doesn't need to care which level a given row
+      // was logged at.
+      function resolveWorkOrderContext(log){
+        if (log.UnitID){
+          var u = unitsById[log.UnitID];
+          return { structureId: u && u.StructureID, floorId: u && u.FloorID, clientId: u && u.ClientID, unitId: log.UnitID };
         }
-        if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
-        if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
+        if (log.RoomID){
+          var r = roomsById[log.RoomID];
+          var floorForRoom = r && floorsById[r.FloorID];
+          if (r && r.UnitID){
+            var ru = unitsById[r.UnitID];
+            return { structureId: ru && ru.StructureID, floorId: r.FloorID, clientId: ru && ru.ClientID, unitId: r.UnitID };
+          }
+          // Shared/common room (no owning Unit) -- no client of its own.
+          return { structureId: floorForRoom && floorForRoom.StructureID, floorId: r && r.FloorID, clientId: null, unitId: null };
+        }
+        if (log.FloorID){
+          var f = floorsById[log.FloorID];
+          return { structureId: f && f.StructureID, floorId: log.FloorID, clientId: null, unitId: null };
+        }
+        if (log.StructureID){
+          return { structureId: log.StructureID, floorId: null, clientId: null, unitId: null };
+        }
+        return { structureId: null, floorId: null, clientId: null, unitId: null };
+      }
+
+      // Two scoping modes:
+      //  - A specific unit is open in the Edit panel (editingObjectId set):
+      //    show that unit's own work orders, PLUS any Room/Floor/Structure
+      //    -level issue that actually affects it -- a building-wide
+      //    elevator outage should still show up while looking at any one
+      //    unit in that building, not just when browsing the whole floor.
+      //  - No unit open: the floor/client-level overview. A Structure-wide
+      //    issue is still relevant no matter which floor is selected (it
+      //    affects every floor); a Unit/Room-level issue is only "this
+      //    client's" if it actually belongs to one of their units, so the
+      //    client filter only restricts those two, not Floor/Structure
+      //    -level entries that were never tied to one client to begin with.
+      function workOrderInScope(log){
+        var ctx = resolveWorkOrderContext(log);
+
+        if (editingObjectId !== null){
+          var editingUnit = unitsById[editingUnitId];
+          if (log.UnitID) return log.UnitID === editingUnitId;
+          if (log.RoomID) return ctx.unitId === editingUnitId;
+          if (log.FloorID) return !!(editingUnit && String(log.FloorID) === String(editingUnit.FloorID));
+          if (log.StructureID) return !!(editingUnit && String(log.StructureID) === String(editingUnit.StructureID));
+          return false;
+        }
+
+        if (activeStructureId && String(ctx.structureId || "") !== String(activeStructureId)) return false;
+
+        if (activeFloorId){
+          var isStructureWide = !!log.StructureID && !log.FloorID && !log.UnitID && !log.RoomID;
+          if (!isStructureWide && String(ctx.floorId || "") !== String(activeFloorId)) return false;
+        }
+
+        if (activeClientId && (log.UnitID || log.RoomID) && ctx.clientId !== activeClientId) return false;
+
         return true;
+      }
+
+      // Label shown per work-order item so it's obvious at a glance which
+      // level it's attached at, since that's no longer always "Unit X".
+      function workOrderLocationLabel(log){
+        if (log.UnitID){
+          var u = unitsById[log.UnitID];
+          return u ? ("Unit " + (u.UnitNumber || u.UnitID)) : ("Unit " + log.UnitID);
+        }
+        if (log.RoomID){
+          var r = roomsById[log.RoomID];
+          return r ? ("Room " + (r.RoomNumber || r.RoomID)) : ("Room " + log.RoomID);
+        }
+        if (log.FloorID){
+          var f = floorsById[log.FloorID];
+          return f ? ("Floor " + f.FloorNumber) : ("Floor " + log.FloorID);
+        }
+        if (log.StructureID){
+          var s = structuresById[log.StructureID];
+          return (s && s.StructureName ? s.StructureName : "Building") + " (entire building)";
+        }
+        return "—";
       }
 
       function renderWorkOrders(){
@@ -879,7 +984,7 @@
         if (editingObjectId !== null){
           var scopedUnit = unitsById[editingUnitId];
           woScopeLabel.hidden = false;
-          woScopeLabel.textContent = "Showing: Unit " + (scopedUnit ? (scopedUnit.UnitNumber || editingUnitId) : editingUnitId) + " only";
+          woScopeLabel.textContent = "Showing: Unit " + (scopedUnit ? (scopedUnit.UnitNumber || editingUnitId) : editingUnitId) + " + any floor/building-wide issues";
         } else {
           woScopeLabel.hidden = true;
         }
@@ -908,8 +1013,7 @@
         }
 
         scoped.forEach(function(log){
-          var unit = unitsById[log.UnitID];
-          var unitLabel = unit ? ("Unit " + (unit.UnitNumber || unit.UnitID)) : ("Unit " + (log.UnitID || "—"));
+          var unitLabel = workOrderLocationLabel(log);
 
           var item = document.createElement("div");
           item.className = "wo-item";
@@ -1379,6 +1483,14 @@
       // that's already selected." Falls back to the full portfolio list
       // only when no building is selected yet -- there's no context to
       // narrow by in that case.
+      // "Whose unit/room" applies here the same way it does to the sidebar
+      // client filter elsewhere: with a client selected, the picker should
+      // only offer spaces that client actually manages, not the whole
+      // building's roster.
+      function unitMatchesActiveClient(unit){
+        return !activeClientId || !!(unit && unit.ClientID === activeClientId);
+      }
+
       function populateWoUnitSelect(){
         woUnitSelect.innerHTML = "";
 
@@ -1388,9 +1500,10 @@
         woUnitSelect.appendChild(placeholder);
 
         var allUnits = Object.keys(unitsById).map(function(id){ return unitsById[id]; });
-        var scoped = activeStructureId
-          ? allUnits.filter(function(u){ return String(u.StructureID) === String(activeStructureId); })
-          : allUnits;
+        var scoped = allUnits.filter(function(u){
+          if (activeStructureId && String(u.StructureID) !== String(activeStructureId)) return false;
+          return unitMatchesActiveClient(u);
+        });
 
         scoped.sort(function(a, b){
           return String(a.UnitNumber || "").localeCompare(String(b.UnitNumber || ""), undefined, { numeric: true });
@@ -1404,18 +1517,101 @@
         });
 
         // Default to whatever unit was last clicked on the map, but only
-        // if it's actually in the current (possibly building-scoped) list
-        // -- no sense preselecting a unit from a different building.
+        // if it's actually in the current (possibly building/client
+        // -scoped) list -- no sense preselecting a unit from a different
+        // building or a different client's space.
         if (editingUnitId && scoped.some(function(u){ return u.UnitID === editingUnitId; })){
           woUnitSelect.value = editingUnitId;
         }
       }
 
+      function populateWoFloorSelect(){
+        woFloorSelect.innerHTML = "";
+
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "-- Select a floor --";
+        woFloorSelect.appendChild(placeholder);
+
+        var floors = activeStructureId ? (floorsByStructure[activeStructureId] || []) : [];
+        floors.forEach(function(f){
+          var option = document.createElement("option");
+          option.value = f.FloorID;
+          option.textContent = "Floor " + f.FloorNumber;
+          woFloorSelect.appendChild(option);
+        });
+
+        if (activeFloorId && floors.some(function(f){ return f.FloorID === activeFloorId; })){
+          woFloorSelect.value = activeFloorId;
+        }
+      }
+
+      // Rooms don't carry a ClientID of their own -- a shared/common room
+      // (no owning Unit) isn't any one client's, so under an active client
+      // filter it's excluded here rather than shown to everyone regardless.
+      function populateWoRoomSelect(){
+        woRoomSelect.innerHTML = "";
+
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "-- Select a room --";
+        woRoomSelect.appendChild(placeholder);
+
+        var allRooms = Object.keys(roomsById).map(function(id){ return roomsById[id]; });
+        var scoped = allRooms.filter(function(r){
+          if (activeFloorId){
+            if (String(r.FloorID) !== String(activeFloorId)) return false;
+          } else if (activeStructureId){
+            var floor = floorsById[r.FloorID];
+            if (!floor || String(floor.StructureID) !== String(activeStructureId)) return false;
+          }
+          if (activeClientId){
+            var unit = r.UnitID ? unitsById[r.UnitID] : null;
+            if (!unitMatchesActiveClient(unit)) return false;
+          }
+          return true;
+        });
+
+        scoped.sort(function(a, b){
+          return String(a.RoomNumber || "").localeCompare(String(b.RoomNumber || ""), undefined, { numeric: true });
+        });
+
+        scoped.forEach(function(r){
+          var option = document.createElement("option");
+          option.value = r.RoomID;
+          option.textContent = "Room " + (r.RoomNumber || r.RoomID);
+          woRoomSelect.appendChild(option);
+        });
+      }
+
+      function updateWoLevelVisibility(){
+        var level = woLevel.value;
+        woStructureWrap.hidden = level !== "STRUCTURE";
+        woFloorWrap.hidden = level !== "FLOOR";
+        woUnitWrap.hidden = level !== "UNIT";
+        woRoomWrap.hidden = level !== "ROOM";
+
+        if (level === "STRUCTURE"){
+          var structure = activeStructureId && structuresById[activeStructureId];
+          woStructureNote.textContent = structure
+            ? "Applies to the entire " + (structure.StructureName || "building") + "."
+            : "Select a building in the sidebar first.";
+        }
+      }
+
+      woLevel.addEventListener("change", updateWoLevelVisibility);
+
       addWorkOrderBtn.addEventListener("click", function(){
         var showing = !addWorkOrderForm.hidden;
         addWorkOrderForm.hidden = showing;
         addWorkOrderBtn.textContent = showing ? "+ New" : "Cancel";
-        if (!showing) populateWoUnitSelect();
+        if (!showing){
+          woLevel.value = "UNIT";
+          populateWoUnitSelect();
+          populateWoFloorSelect();
+          populateWoRoomSelect();
+          updateWoLevelVisibility();
+        }
       });
 
       function resetAddWorkOrderForm(){
@@ -1423,6 +1619,8 @@
         woAddError.textContent = "";
         addWorkOrderForm.hidden = true;
         addWorkOrderBtn.textContent = "+ New";
+        woLevel.value = "UNIT";
+        updateWoLevelVisibility();
       }
 
       woAddCancel.addEventListener("click", resetAddWorkOrderForm);
@@ -1431,20 +1629,32 @@
         e.preventDefault();
         woAddError.textContent = "";
 
-        var unitId = woUnitSelect.value;
-        if (!unitId){
-          woAddError.textContent = "Select a unit.";
-          return;
-        }
-
+        var level = woLevel.value;
         var attrs = {
-          UnitID: unitId, // TEXT GUID field, like every other *ID in this schema -- never coerce to Number
+          UnitID: null,
+          StructureID: null,
+          FloorID: null,
+          RoomID: null, // TEXT GUID fields, like every other *ID in this schema -- never coerce to Number
           IssueType: woIssueType.value,
           Description: woDescription.value || null,
           ReportedBy: woReportedBy.value || null,
           Status: "REP",
           DateReported: Date.now()
         };
+
+        if (level === "UNIT"){
+          if (!woUnitSelect.value){ woAddError.textContent = "Select a unit."; return; }
+          attrs.UnitID = woUnitSelect.value;
+        } else if (level === "STRUCTURE"){
+          if (!activeStructureId){ woAddError.textContent = "Select a building in the sidebar first."; return; }
+          attrs.StructureID = activeStructureId;
+        } else if (level === "FLOOR"){
+          if (!woFloorSelect.value){ woAddError.textContent = "Select a floor."; return; }
+          attrs.FloorID = woFloorSelect.value;
+        } else if (level === "ROOM"){
+          if (!woRoomSelect.value){ woAddError.textContent = "Select a room."; return; }
+          attrs.RoomID = woRoomSelect.value;
+        }
 
         var saveBtn = document.getElementById("woAddSave");
         saveBtn.disabled = true;
@@ -1639,11 +1849,16 @@
           }),
           queryTable(9, {
             where: "1=1",
-            outFields: "OBJECTID,UnitID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
+            outFields: "OBJECTID,UnitID,StructureID,FloorID,RoomID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
           }),
           queryTable(8, {
             where: "1=1",
             outFields: "OBJECTID,StructureID,UnitID,Trade,VendorName,ContactName,Phone,Email,Notes"
+          }),
+          roomsLayer.queryFeatures({
+            where: "1=1",
+            outFields: ["RoomID", "FloorID", "UnitID", "RoomNumber"],
+            returnGeometry: false
           })
         ]);
       }).then(function(results){
@@ -1653,13 +1868,17 @@
         var allUnitsResult = results[3];
         var maintenanceLogResult = results[4];
         var mepContactsResult = results[5];
+        var roomsResult = results[6];
 
         // Group floors by structure, sorted low-to-high, for the floor
-        // picker shown once a building is selected.
+        // picker shown once a building is selected. floorsById is the
+        // companion lookup for going the other way -- resolving a single
+        // FloorID (e.g. a Floor-level work order) back to its Structure.
         floorsResult.features.forEach(function(f){
           var attrs = f.attributes;
           var list = floorsByStructure[attrs.StructureID] || (floorsByStructure[attrs.StructureID] = []);
           list.push(attrs);
+          floorsById[attrs.FloorID] = attrs;
         });
         Object.keys(floorsByStructure).forEach(function(sid){
           floorsByStructure[sid].sort(function(a, b){ return a.FloorNumber - b.FloorNumber; });
@@ -1676,6 +1895,13 @@
             var list = unitIdsByClient[attrs.ClientID] || (unitIdsByClient[attrs.ClientID] = []);
             list.push(attrs.UnitID);
           }
+        });
+
+        // RoomID -> {FloorID, UnitID, RoomNumber} -- backs the Room-level
+        // Add Work Order picker and resolveWorkOrderContext() for
+        // Room-attached MaintenanceLog rows.
+        roomsResult.features.forEach(function(f){
+          roomsById[f.attributes.RoomID] = f.attributes;
         });
 
         maintenanceLogs = (maintenanceLogResult.features || []).map(function(f){ return f.attributes; });
@@ -1702,6 +1928,7 @@
 
         structuresResult.features.forEach(function(feature){
           var attrs = feature.attributes;
+          structuresById[attrs.StructureID] = attrs;
           var name = attrs.StructureName || ("Structure " + attrs.StructureID);
           var addr = attrs.Address || "";
 
