@@ -120,6 +120,10 @@
   .mini-actions button{padding:6px 10px; font-size:12px;}
   .mini-error{color:#b3413a; font-size:11px; min-height:14px; margin-top:4px;}
   #mepSection{margin-top:20px; padding-top:16px; border-top:1px solid var(--line);}
+  .scope-label{
+    font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-soft, #eaf2ef);
+    border-radius:6px; padding:4px 8px; margin:0 0 10px; display:inline-block;
+  }
   #mepList p{font-size:12px; color:var(--ink-faint); margin:0;}
   .mep-item{background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px; font-size:12px;}
   .mep-item .mep-top{font-weight:600; margin-bottom:2px;}
@@ -297,6 +301,7 @@
         <h2>Vendor Contacts</h2>
         <button type="button" class="add-btn" id="addMepBtn">+ New</button>
       </div>
+      <p id="mepScopeLabel" class="scope-label" hidden></p>
       <div id="mepList"><p>Select a building below to see its vendor contacts.</p></div>
       <form id="addMepForm" class="mini-form" hidden>
         <label for="mepTrade">Trade</label>
@@ -328,6 +333,7 @@
         <h2>Work Orders</h2>
         <button type="button" class="add-btn" id="addWorkOrderBtn">+ New</button>
       </div>
+      <p id="woScopeLabel" class="scope-label" hidden></p>
       <div id="workOrderTabs">
         <button type="button" class="wo-tab active" data-tab="open">Open</button>
         <button type="button" class="wo-tab" data-tab="closed">Closed</button>
@@ -439,6 +445,7 @@
   var viewingLine = document.getElementById('viewingLine');
   var workOrderTabs = document.getElementById('workOrderTabs');
   var workOrderList = document.getElementById('workOrderList');
+  var woScopeLabel = document.getElementById('woScopeLabel');
   var woActionError = document.getElementById('woActionError');
   var addWorkOrderBtn = document.getElementById('addWorkOrderBtn');
   var addWorkOrderForm = document.getElementById('addWorkOrderForm');
@@ -449,6 +456,7 @@
   var woAddError = document.getElementById('woAddError');
   var woAddCancel = document.getElementById('woAddCancel');
   var mepList = document.getElementById('mepList');
+  var mepScopeLabel = document.getElementById('mepScopeLabel');
   var addMepBtn = document.getElementById('addMepBtn');
   var addMepForm = document.getElementById('addMepForm');
   var mepTrade = document.getElementById('mepTrade');
@@ -744,41 +752,72 @@
         return match ? (match.ClientName || clientId) : clientId;
       }
 
+      // Two scoping modes, same idea as work orders:
+      //  - A specific unit is open in the Edit panel: show only that
+      //    unit's own vendor, building-wide shared vendors, and that
+      //    unit's own client's portable vendor. A vendor tied to a
+      //    DIFFERENT unit in the same building has no business showing up
+      //    here just because it's the same floor -- that was the other
+      //    "extraneous data" gap this fixes.
+      //  - No unit open: the previous floor/building-level overview,
+      //    further narrowed by the sidebar client filter if one's active.
+      function mepInScope(c){
+        if (editingObjectId !== null){
+          var scopedUnit = unitsById[editingUnitId];
+          if (c.UnitID) return c.UnitID === editingUnitId;
+          if (c.StructureID) return c.StructureID === activeStructureId;
+          if (c.ClientID) return !!(scopedUnit && scopedUnit.ClientID === c.ClientID);
+          return false;
+        }
+
+        var inBuilding;
+        if (c.StructureID){
+          inBuilding = c.StructureID === activeStructureId;
+        } else if (c.UnitID){
+          var unit = unitsById[c.UnitID];
+          inBuilding = !!(unit && unit.StructureID === activeStructureId);
+        } else if (c.ClientID){
+          // Portable client vendor, no building/unit tie -- relevant to
+          // this building whenever that client actually manages units
+          // here, same as the bookmark-relevance check.
+          inBuilding = structureHasClientUnits(activeStructureId, c.ClientID);
+        } else {
+          inBuilding = false; // shouldn't happen -- every vendor needs at least one of these
+        }
+        if (!inBuilding) return false;
+
+        // "Whose vendor" filter: with no client selected (god mode, all
+        // clients), everything relevant to the building shows. With a
+        // client selected, only that client's own vendors and
+        // shared/unassigned ones show -- another client's vendor is
+        // excluded even though it's in the same building.
+        if (!activeClientId) return true;
+        return !c.ClientID || c.ClientID === activeClientId;
+      }
+
       function renderMepContacts(){
         mepList.innerHTML = "";
         if (!activeStructureId){
+          mepScopeLabel.hidden = true;
           mepList.innerHTML = "<p>Select a building below to see its vendor contacts.</p>";
           return;
         }
 
-        var scoped = mepContacts.filter(function(c){
-          var inBuilding;
-          if (c.StructureID){
-            inBuilding = c.StructureID === activeStructureId;
-          } else if (c.UnitID){
-            var unit = unitsById[c.UnitID];
-            inBuilding = !!(unit && unit.StructureID === activeStructureId);
-          } else if (c.ClientID){
-            // Portable client vendor, no building/unit tie -- relevant to
-            // this building whenever that client actually manages units
-            // here, same as the bookmark-relevance check.
-            inBuilding = structureHasClientUnits(activeStructureId, c.ClientID);
-          } else {
-            inBuilding = false; // shouldn't happen -- every vendor needs at least one of these
-          }
-          if (!inBuilding) return false;
+        if (editingObjectId !== null){
+          var scopedUnit = unitsById[editingUnitId];
+          mepScopeLabel.hidden = false;
+          mepScopeLabel.textContent = "Showing: Unit " + (scopedUnit ? (scopedUnit.UnitNumber || editingUnitId) : editingUnitId) + " + shared";
+        } else {
+          mepScopeLabel.hidden = true;
+        }
 
-          // "Whose vendor" filter: with no client selected (god mode, all
-          // clients), everything relevant to the building shows. With a
-          // client selected, only that client's own vendors and
-          // shared/unassigned ones show -- another client's vendor is
-          // excluded even though it's in the same building.
-          if (!activeClientId) return true;
-          return !c.ClientID || c.ClientID === activeClientId;
-        });
+        var scoped = mepContacts.filter(mepInScope);
 
         if (!scoped.length){
-          mepList.innerHTML = "<p>No vendor contacts on file" + (activeClientId ? " for this client in this building." : " for this building.") + "</p>";
+          var emptyDesc = editingObjectId !== null ? " for this unit."
+            : activeClientId ? " for this client in this building."
+            : " for this building.";
+          mepList.innerHTML = "<p>No vendor contacts on file" + emptyDesc + "</p>";
           return;
         }
 
@@ -816,43 +855,55 @@
       }
 
       // MaintenanceLog only carries a UnitID (no FloorID/ClientID of its
-      // own), so it's scoped to the current floor/client by checking each
-      // log's UnitID against unitsById -- the same lookup built from the
-      // Units query below.
+      // own), so it's scoped by checking each log's UnitID against
+      // unitsById. Two scoping modes:
+      //  - A specific unit is open in the Edit panel (editingObjectId set):
+      //    show ONLY that unit's own work orders. A PM investigating one
+      //    unit doesn't want the whole floor's open issues mixed in -- that's
+      //    exactly the "extraneous data" problem flagged after testing.
+      //  - No unit open: fall back to the floor/client-level overview, same
+      //    as before, for browsing everything happening on a floor at once.
+      function workOrderInScope(log){
+        var unit = unitsById[log.UnitID];
+        if (editingObjectId !== null){
+          return !!(unit && unit.UnitID === editingUnitId);
+        }
+        if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
+        if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
+        return true;
+      }
+
       function renderWorkOrders(){
         var isClosed = function(status){ return status === "CMP"; };
 
+        if (editingObjectId !== null){
+          var scopedUnit = unitsById[editingUnitId];
+          woScopeLabel.hidden = false;
+          woScopeLabel.textContent = "Showing: Unit " + (scopedUnit ? (scopedUnit.UnitNumber || editingUnitId) : editingUnitId) + " only";
+        } else {
+          woScopeLabel.hidden = true;
+        }
+
         var scoped = maintenanceLogs.filter(function(log){
-          var unit = unitsById[log.UnitID];
-          if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
-          if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
+          if (!workOrderInScope(log)) return false;
           return activeWoTab === "closed" ? isClosed(log.Status) : !isClosed(log.Status);
         });
 
         // Update tab labels with live counts for whichever scope is active.
         var openCount = maintenanceLogs.filter(function(log){
-          var unit = unitsById[log.UnitID];
-          if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return false;
-          if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return false;
-          return !isClosed(log.Status);
+          return workOrderInScope(log) && !isClosed(log.Status);
         }).length;
-        var closedCount = maintenanceLogs.length ? (function(){
-          var count = 0;
-          maintenanceLogs.forEach(function(log){
-            var unit = unitsById[log.UnitID];
-            if (activeFloorId && (!unit || unit.FloorID !== activeFloorId)) return;
-            if (activeClientId && (!unit || unit.ClientID !== activeClientId)) return;
-            if (isClosed(log.Status)) count++;
-          });
-          return count;
-        })() : 0;
+        var closedCount = maintenanceLogs.filter(function(log){
+          return workOrderInScope(log) && isClosed(log.Status);
+        }).length;
 
         workOrderTabs.querySelector('[data-tab="open"]').textContent = "Open (" + openCount + ")";
         workOrderTabs.querySelector('[data-tab="closed"]').textContent = "Closed (" + closedCount + ")";
 
         workOrderList.innerHTML = "";
         if (!scoped.length){
-          workOrderList.innerHTML = "<p>No " + activeWoTab + " work orders" + (activeFloorId || activeClientId ? " for this selection." : ".") + "</p>";
+          var scopeDesc = editingObjectId !== null ? " for this unit." : (activeFloorId || activeClientId ? " for this selection." : ".");
+          workOrderList.innerHTML = "<p>No " + activeWoTab + " work orders" + scopeDesc + "</p>";
           return;
         }
 
@@ -1226,11 +1277,22 @@
         editUnitSqFt.value = (attrs.SqFt !== null && attrs.SqFt !== undefined) ? attrs.SqFt : "";
         editUnitNotes.value = attrs.Notes || "";
         editPanel.hidden = false;
+        // Narrow the Work Orders / Vendor Contacts panels down to just this
+        // unit now that editingObjectId is set -- see workOrderInScope() /
+        // mepInScope() for what "just this unit" means for each.
+        renderWorkOrders();
+        renderMepContacts();
       }
 
       function closeEditPanel(){
         editPanel.hidden = true;
         editingObjectId = null;
+        // Back to the floor/client-level overview now that no specific
+        // unit is open. editingUnitId deliberately isn't cleared here --
+        // populateWoUnitSelect() still uses it to default the Add Work
+        // Order unit picker to whatever you were just looking at.
+        renderWorkOrders();
+        renderMepContacts();
       }
 
       editPanelClose.addEventListener("click", closeEditPanel);
@@ -1652,6 +1714,11 @@
           btn.querySelector(".b-addr").textContent = addr;
 
           btn.addEventListener("click", function(){
+            // Close any unit currently open in the Edit panel first --
+            // otherwise Work Orders/Vendor Contacts would stay scoped to a
+            // unit in the building you just navigated away from.
+            closeEditPanel();
+
             // Zoom to the building...
             if (feature.geometry && feature.geometry.extent){
               view.goTo(feature.geometry.extent.expand(1.8));
