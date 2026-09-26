@@ -1306,10 +1306,54 @@
       });
 
       // ---- Add Work Order ----
+      // The Unit dropdown used to always list every unit in the entire
+      // portfolio, unfiltered -- fine for a handful of demo units, useless
+      // once there are real buildings with real unit counts (exactly what
+      // just happened testing Sharon's rekey request). Rebuilding it fresh
+      // each time the form opens, scoped to whatever building is currently
+      // selected, and pre-selecting whatever unit was last clicked on the
+      // map (editingUnitId, set by openEditPanel) turns "scroll a giant
+      // flat list and hope you pick the right one" into "confirm the unit
+      // that's already selected." Falls back to the full portfolio list
+      // only when no building is selected yet -- there's no context to
+      // narrow by in that case.
+      function populateWoUnitSelect(){
+        woUnitSelect.innerHTML = "";
+
+        var placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "-- Select a unit --";
+        woUnitSelect.appendChild(placeholder);
+
+        var allUnits = Object.keys(unitsById).map(function(id){ return unitsById[id]; });
+        var scoped = activeStructureId
+          ? allUnits.filter(function(u){ return String(u.StructureID) === String(activeStructureId); })
+          : allUnits;
+
+        scoped.sort(function(a, b){
+          return String(a.UnitNumber || "").localeCompare(String(b.UnitNumber || ""), undefined, { numeric: true });
+        });
+
+        scoped.forEach(function(u){
+          var option = document.createElement("option");
+          option.value = u.UnitID;
+          option.textContent = "Unit " + (u.UnitNumber || u.UnitID) + (u.UnitName ? " — " + u.UnitName : "");
+          woUnitSelect.appendChild(option);
+        });
+
+        // Default to whatever unit was last clicked on the map, but only
+        // if it's actually in the current (possibly building-scoped) list
+        // -- no sense preselecting a unit from a different building.
+        if (editingUnitId && scoped.some(function(u){ return u.UnitID === editingUnitId; })){
+          woUnitSelect.value = editingUnitId;
+        }
+      }
+
       addWorkOrderBtn.addEventListener("click", function(){
         var showing = !addWorkOrderForm.hidden;
         addWorkOrderForm.hidden = showing;
         addWorkOrderBtn.textContent = showing ? "+ New" : "Cancel";
+        if (!showing) populateWoUnitSelect();
       });
 
       function resetAddWorkOrderForm(){
@@ -1575,17 +1619,11 @@
         maintenanceLogs = (maintenanceLogResult.features || []).map(function(f){ return f.attributes; });
         mepContacts = (mepContactsResult.features || []).map(function(f){ return f.attributes; });
 
-        // Populate the "Unit" dropdown on the add-work-order form, sorted
-        // by unit number.
-        var unitOptions = Object.keys(unitsById).map(function(id){ return unitsById[id]; }).sort(function(a, b){
-          return String(a.UnitNumber || "").localeCompare(String(b.UnitNumber || ""), undefined, { numeric: true });
-        });
-        unitOptions.forEach(function(u){
-          var option = document.createElement("option");
-          option.value = u.UnitID;
-          option.textContent = "Unit " + (u.UnitNumber || u.UnitID) + (u.UnitName ? " — " + u.UnitName : "");
-          woUnitSelect.appendChild(option);
-        });
+        // Populate the "Unit" dropdown on the add-work-order form. No
+        // building is selected yet at initial load, so this shows the full
+        // portfolio list -- populateWoUnitSelect() re-scopes it to just the
+        // active building every time the Add Work Order form is opened.
+        populateWoUnitSelect();
 
         // Populate the client dropdowns (the sidebar filter and the Edit
         // Unit panel's assignment field) from the Clients table.
