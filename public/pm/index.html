@@ -183,6 +183,8 @@
   }
   .measure-tool-btn{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;}
 
+  #headerActions{display:flex; align-items:center; gap:10px;}
+
   /* ---- layout guide dropdown ---- */
   #layoutGuideWrap{position:relative;}
   #layoutGuideBtn{
@@ -213,6 +215,28 @@
   .lg-related dl{margin:0; display:grid; grid-template-columns:auto 1fr; gap:4px 10px;}
   .lg-related dt{font-size:12px; font-weight:600; white-space:nowrap;}
   .lg-related dd{font-size:12px; color:var(--ink-faint); margin:0;}
+
+  /* ---- reports modal ---- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(28,35,31,.4); z-index:50;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .modal-card{
+    background:var(--surface); border-radius:14px; padding:20px 24px; width:100%; max-width:760px;
+    max-height:80vh; overflow-y:auto; box-shadow:0 12px 32px rgba(0,0,0,.22);
+  }
+  .modal-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;}
+  .modal-head h3{font-size:16px;}
+  .modal-controls{display:flex; align-items:center; gap:8px; margin-bottom:14px;}
+  .modal-controls label{font-size:12px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); margin:0;}
+  .modal-controls select{
+    width:auto; padding:6px 10px; border:1px solid var(--line); border-radius:6px; font-size:13px;
+    font-family:inherit; background:var(--bg); color:var(--ink);
+  }
+  #reportsTable{width:100%; border-collapse:collapse; font-size:13px;}
+  #reportsTable th, #reportsTable td{text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  #reportsTable th{font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); font-weight:600;}
+  #reportsTable tr:hover td{background:var(--bg);}
 </style>
 </head>
 <body>
@@ -225,6 +249,7 @@
       <span class="sub">Property Manager</span>
     </div>
   </div>
+  <div id="headerActions">
   <div id="layoutGuideWrap">
     <button type="button" id="layoutGuideBtn">Layout Guide <span class="caret">&#9662;</span></button>
     <div id="layoutGuidePanel" hidden>
@@ -258,6 +283,8 @@
         </dl>
       </div>
     </div>
+  </div>
+  <button type="button" id="reportsBtn">Reports</button>
   </div>
   <div class="session" id="sessionBar" hidden>
     <div class="whoami">
@@ -456,6 +483,32 @@
   </div>
 </section>
 
+<div id="reportsModal" class="modal-overlay" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>Most Problematic Units</h3>
+      <button type="button" class="edit-close" id="reportsClose">&times;</button>
+    </div>
+    <div class="modal-controls">
+      <label for="reportsBuildingFilter">Building</label>
+      <select id="reportsBuildingFilter">
+        <option value="">All Buildings</option>
+      </select>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="reportsTable">
+        <thead>
+          <tr>
+            <th>#</th><th>Unit</th><th>Building</th><th>Client</th>
+            <th>Total</th><th>Open</th><th>Completed</th><th>Last Reported</th>
+          </tr>
+        </thead>
+        <tbody id="reportsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <script src="https://js.arcgis.com/4.30/"></script>
 <script>
 (function(){
@@ -541,6 +594,11 @@
   var editUnitError = document.getElementById('editUnitError');
   var editUnitSaved = document.getElementById('editUnitSaved');
   var editUnitCancel = document.getElementById('editUnitCancel');
+  var reportsBtn = document.getElementById('reportsBtn');
+  var reportsModal = document.getElementById('reportsModal');
+  var reportsClose = document.getElementById('reportsClose');
+  var reportsBuildingFilter = document.getElementById('reportsBuildingFilter');
+  var reportsTableBody = document.getElementById('reportsTableBody');
 
   var view = null; // set once the map initializes
 
@@ -1918,6 +1976,110 @@
           saveBtn.disabled = false;
         });
       });
+
+      // ---- Reports: Most Problematic Units ----
+      // Pure client-side aggregation over maintenanceLogs, which already
+      // holds every MaintenanceLog row (the initial load queries "1=1", not
+      // scoped to the active client/floor) -- no new query needed. Only
+      // work orders resolvable to a specific unit count here (see
+      // resolveWorkOrderContext) -- a Structure/Floor-wide issue isn't any
+      // one unit's problem, so it's left out of this particular ranking.
+      function computeUnitProblemStats(structureFilter){
+        var stats = {}; // UnitID -> {count, open, completed, lastDate}
+        maintenanceLogs.forEach(function(log){
+          var ctx = resolveWorkOrderContext(log);
+          if (!ctx.unitId) return;
+          if (structureFilter && String(ctx.structureId || "") !== String(structureFilter)) return;
+          var s = stats[ctx.unitId] || (stats[ctx.unitId] = { count: 0, open: 0, completed: 0, lastDate: 0 });
+          s.count++;
+          if (log.Status === "CMP") s.completed++; else s.open++;
+          if (log.DateReported && log.DateReported > s.lastDate) s.lastDate = log.DateReported;
+        });
+        return stats;
+      }
+
+      function populateReportsBuildingFilter(){
+        var previousValue = reportsBuildingFilter.value;
+        reportsBuildingFilter.innerHTML = "";
+        var allOption = document.createElement("option");
+        allOption.value = "";
+        allOption.textContent = "All Buildings";
+        reportsBuildingFilter.appendChild(allOption);
+
+        var sorted = Object.keys(structuresById).map(function(id){ return structuresById[id]; })
+          .sort(function(a, b){ return (a.StructureName || "").localeCompare(b.StructureName || ""); });
+        sorted.forEach(function(s){
+          var opt = document.createElement("option");
+          opt.value = s.StructureID;
+          opt.textContent = s.StructureName || s.StructureID;
+          reportsBuildingFilter.appendChild(opt);
+        });
+        reportsBuildingFilter.value = previousValue; // no-op if it no longer exists
+      }
+
+      function renderReportsTable(){
+        var structureFilter = reportsBuildingFilter.value || null;
+        var stats = computeUnitProblemStats(structureFilter);
+
+        var rows = Object.keys(stats).map(function(unitId){
+          var unit = unitsById[unitId];
+          var structure = unit && structuresById[unit.StructureID];
+          var s = stats[unitId];
+          return {
+            unitLabel: unit ? ("Unit " + (unit.UnitNumber || unitId) + (unit.UnitName ? " — " + unit.UnitName : "")) : ("Unit " + unitId),
+            buildingLabel: structure ? (structure.StructureName || "—") : "—",
+            clientLabel: unit && unit.ClientID ? clientNameFor(unit.ClientID) : "Unassigned",
+            total: s.count,
+            open: s.open,
+            completed: s.completed,
+            lastDate: s.lastDate
+          };
+        });
+
+        // Most total work orders first; ties broken by more open issues,
+        // then by whichever was reported on more recently.
+        rows.sort(function(a, b){
+          if (b.total !== a.total) return b.total - a.total;
+          if (b.open !== a.open) return b.open - a.open;
+          return b.lastDate - a.lastDate;
+        });
+
+        reportsTableBody.innerHTML = "";
+        if (!rows.length){
+          var tr = document.createElement("tr");
+          var td = document.createElement("td");
+          td.colSpan = 8;
+          td.textContent = "No work orders logged" + (structureFilter ? " for this building." : " yet.");
+          tr.appendChild(td);
+          reportsTableBody.appendChild(tr);
+          return;
+        }
+
+        rows.forEach(function(row, i){
+          var tr = document.createElement("tr");
+          [
+            i + 1, row.unitLabel, row.buildingLabel, row.clientLabel,
+            row.total, row.open, row.completed,
+            row.lastDate ? new Date(row.lastDate).toLocaleDateString() : "—"
+          ].forEach(function(value){
+            var td = document.createElement("td");
+            td.textContent = value;
+            tr.appendChild(td);
+          });
+          reportsTableBody.appendChild(tr);
+        });
+      }
+
+      reportsBtn.addEventListener("click", function(){
+        populateReportsBuildingFilter();
+        renderReportsTable();
+        reportsModal.hidden = false;
+      });
+      reportsClose.addEventListener("click", function(){ reportsModal.hidden = true; });
+      reportsModal.addEventListener("click", function(e){
+        if (e.target === reportsModal) reportsModal.hidden = true; // click on backdrop closes
+      });
+      reportsBuildingFilter.addEventListener("change", renderReportsTable);
 
       // ---- Add Client ----
       addClientBtn.addEventListener("click", function(){
