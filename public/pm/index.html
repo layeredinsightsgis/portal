@@ -94,8 +94,16 @@
   .wo-tab{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-size:12px;}
   .wo-tab.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
   #workOrderList p{font-size:12px; color:var(--ink-faint); margin:0;}
-  .wo-item{background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px;}
+  .wo-item{background:var(--bg); border:1px solid var(--line); border-left:4px solid var(--line); border-radius:8px; padding:9px 11px; margin-bottom:8px;}
+  /* Left-border color-codes each item by the level it's attached at,
+     reusing the same hex colors as that level's map-layer labels so the
+     sidebar and the map read as one consistent color language. */
+  .wo-item.wo-level-structure{border-left-color:#1c2530;}
+  .wo-item.wo-level-floor{border-left-color:#2c4570;}
+  .wo-item.wo-level-unit{border-left-color:#1d4a3e;}
+  .wo-item.wo-level-room{border-left-color:#7a4c17;}
   .wo-item .wo-top{display:flex; justify-content:space-between; align-items:center; gap:6px; font-size:12.5px; font-weight:600; margin-bottom:4px;}
+  .wo-item .wo-badges{display:flex; align-items:center; gap:4px; flex-shrink:0;}
   .wo-item .wo-desc{font-size:12px; margin-bottom:4px;}
   .wo-item .wo-meta{color:var(--ink-faint); font-size:11px;}
   .wo-status{font-size:10px; font-weight:700; padding:2px 7px; border-radius:999px; text-transform:uppercase; white-space:nowrap;}
@@ -103,6 +111,11 @@
   .wo-status-wip{background:#e4efec; color:#1d4a3e;}
   .wo-status-hld{background:#f3e7e1; color:#8a5a46;}
   .wo-status-cmp{background:#e3f3ea; color:#2f7d5a;}
+  .wo-severity{font-size:10px; font-weight:700; padding:2px 7px; border-radius:999px; text-transform:uppercase; white-space:nowrap;}
+  .wo-sev-critical{background:#fbe1df; color:#b3271f;}
+  .wo-sev-high{background:#fdece0; color:#b3591b;}
+  .wo-sev-medium{background:#fdf6d9; color:#8a6d00;}
+  .wo-sev-low{background:#e7f0e9; color:#3f7a53;}
   .wo-complete-btn{
     margin-top:6px; width:100%; background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
     font-size:11px; padding:6px 8px;
@@ -374,6 +387,13 @@
           <option value="FIRSYS">Fire System</option>
           <option value="DORWIN">Doors/Windows</option>
         </select>
+        <label for="woSeverity">Severity</label>
+        <select id="woSeverity">
+          <option value="CRITICAL">Critical — immediate response needed</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM" selected>Medium</option>
+          <option value="LOW">Low — routine</option>
+        </select>
         <label for="woDescription">Description</label>
         <textarea id="woDescription" rows="2"></textarea>
         <label for="woReportedBy">Reported By</label>
@@ -479,6 +499,7 @@
   var woRoomWrap = document.getElementById('woRoomWrap');
   var woRoomSelect = document.getElementById('woRoomSelect');
   var woIssueType = document.getElementById('woIssueType');
+  var woSeverity = document.getElementById('woSeverity');
   var woDescription = document.getElementById('woDescription');
   var woReportedBy = document.getElementById('woReportedBy');
   var woAddError = document.getElementById('woAddError');
@@ -721,6 +742,12 @@
         ELE: "Electrical", PLU: "Plumbing", HVAC: "Heating/Cooling", MINCON: "Minor Construction",
         MAJCON: "Major Construction", ACC: "Access Controls", FIRSYS: "Fire System", DORWIN: "Doors/Windows"
       };
+      var WO_SEVERITY_LABELS = { CRITICAL: "Critical", HIGH: "High", MEDIUM: "Medium", LOW: "Low" };
+      var WO_SEVERITY_CLASS = { CRITICAL: "wo-sev-critical", HIGH: "wo-sev-high", MEDIUM: "wo-sev-medium", LOW: "wo-sev-low" };
+      var WO_SEVERITY_ORDER = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+      function severityOrder(sev){
+        return WO_SEVERITY_ORDER.hasOwnProperty(sev) ? WO_SEVERITY_ORDER[sev] : 9;
+      }
 
       function sqlQuote(value){
         return "'" + String(value).replace(/'/g, "''") + "'";
@@ -978,6 +1005,18 @@
         return "—";
       }
 
+      // Which of the four attachment levels a log is at, used to color-code
+      // its list item (matching the map layer colors) -- same "exactly one
+      // ID field populated" logic as workOrderLocationLabel, just returning
+      // the level name instead of a display string.
+      function workOrderLevel(log){
+        if (log.UnitID) return "unit";
+        if (log.RoomID) return "room";
+        if (log.FloorID) return "floor";
+        if (log.StructureID) return "structure";
+        return "";
+      }
+
       function renderWorkOrders(){
         var isClosed = function(status){ return status === "CMP"; };
 
@@ -1005,6 +1044,14 @@
         workOrderTabs.querySelector('[data-tab="open"]').textContent = "Open (" + openCount + ")";
         workOrderTabs.querySelector('[data-tab="closed"]').textContent = "Closed (" + closedCount + ")";
 
+        // Severity first (Critical > High > Medium > Low), then most
+        // recently reported within the same severity.
+        scoped.sort(function(a, b){
+          var sevDiff = severityOrder(a.Severity) - severityOrder(b.Severity);
+          if (sevDiff !== 0) return sevDiff;
+          return (b.DateReported || 0) - (a.DateReported || 0);
+        });
+
         workOrderList.innerHTML = "";
         if (!scoped.length){
           var scopeDesc = editingObjectId !== null ? " for this unit." : (activeFloorId || activeClientId ? " for this selection." : ".");
@@ -1014,19 +1061,31 @@
 
         scoped.forEach(function(log){
           var unitLabel = workOrderLocationLabel(log);
+          var level = workOrderLevel(log);
 
           var item = document.createElement("div");
-          item.className = "wo-item";
+          item.className = "wo-item" + (level ? " wo-level-" + level : "");
 
           var top = document.createElement("div");
           top.className = "wo-top";
           var issueSpan = document.createElement("span");
           issueSpan.textContent = WO_ISSUE_LABELS[log.IssueType] || log.IssueType || "Issue";
+
+          var badges = document.createElement("span");
+          badges.className = "wo-badges";
+          if (log.Severity){
+            var sevSpan = document.createElement("span");
+            sevSpan.className = "wo-severity " + (WO_SEVERITY_CLASS[log.Severity] || "wo-sev-medium");
+            sevSpan.textContent = WO_SEVERITY_LABELS[log.Severity] || log.Severity;
+            badges.appendChild(sevSpan);
+          }
           var statusSpan = document.createElement("span");
           statusSpan.className = "wo-status " + (WO_STATUS_CLASS[log.Status] || "wo-status-rep");
           statusSpan.textContent = WO_STATUS_LABELS[log.Status] || log.Status || "";
+          badges.appendChild(statusSpan);
+
           top.appendChild(issueSpan);
-          top.appendChild(statusSpan);
+          top.appendChild(badges);
 
           var desc = document.createElement("div");
           desc.className = "wo-desc";
@@ -1607,6 +1666,7 @@
         addWorkOrderBtn.textContent = showing ? "+ New" : "Cancel";
         if (!showing){
           woLevel.value = "UNIT";
+          woSeverity.value = "MEDIUM";
           populateWoUnitSelect();
           populateWoFloorSelect();
           populateWoRoomSelect();
@@ -1620,6 +1680,7 @@
         addWorkOrderForm.hidden = true;
         addWorkOrderBtn.textContent = "+ New";
         woLevel.value = "UNIT";
+        woSeverity.value = "MEDIUM";
         updateWoLevelVisibility();
       }
 
@@ -1636,6 +1697,7 @@
           FloorID: null,
           RoomID: null, // TEXT GUID fields, like every other *ID in this schema -- never coerce to Number
           IssueType: woIssueType.value,
+          Severity: woSeverity.value || "MEDIUM",
           Description: woDescription.value || null,
           ReportedBy: woReportedBy.value || null,
           Status: "REP",
@@ -1849,7 +1911,7 @@
           }),
           queryTable(9, {
             where: "1=1",
-            outFields: "OBJECTID,UnitID,StructureID,FloorID,RoomID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved"
+            outFields: "OBJECTID,UnitID,StructureID,FloorID,RoomID,DateReported,IssueType,Description,ReportedBy,Status,DateResolved,Severity"
           }),
           queryTable(8, {
             where: "1=1",
