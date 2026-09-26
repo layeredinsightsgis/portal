@@ -303,6 +303,11 @@
         <input type="text" id="mepTrade" placeholder="e.g. Electrical">
         <label for="mepVendorName">Vendor Name</label>
         <input type="text" id="mepVendorName">
+        <label for="mepClient">Whose Vendor</label>
+        <select id="mepClient">
+          <option value="">Shared / building-wide</option>
+          <!-- remaining options populated once Clients load, see renderClientOptions() -->
+        </select>
         <label for="mepContactName">Contact Name</label>
         <input type="text" id="mepContactName">
         <label for="mepPhone">Phone</label>
@@ -448,6 +453,7 @@
   var addMepForm = document.getElementById('addMepForm');
   var mepTrade = document.getElementById('mepTrade');
   var mepVendorName = document.getElementById('mepVendorName');
+  var mepClient = document.getElementById('mepClient');
   var mepContactName = document.getElementById('mepContactName');
   var mepPhone = document.getElementById('mepPhone');
   var mepEmail = document.getElementById('mepEmail');
@@ -725,7 +731,19 @@
 
       // MEP_Contacts ties to either a StructureID (building-wide vendor)
       // or a UnitID (unit-specific vendor) -- scoped to whichever building
-      // is currently selected, same as the floor picker.
+      // is currently selected, same as the floor picker. It can also carry
+      // a ClientID, marking it as one client's own preferred vendor rather
+      // than something shared by everyone in the building (blank ClientID
+      // = shared/building-wide). When a specific client is active, the
+      // list narrows to that client's own vendors plus shared ones -- the
+      // same thing that client would eventually see in a client-scoped
+      // view -- so, e.g., Sharon never sees another client's vendor just
+      // because they happen to share a building.
+      function clientNameFor(clientId){
+        var match = clients.filter(function(c){ return c.ClientID === clientId; })[0];
+        return match ? (match.ClientName || clientId) : clientId;
+      }
+
       function renderMepContacts(){
         mepList.innerHTML = "";
         if (!activeStructureId){
@@ -734,19 +752,31 @@
         }
 
         var scoped = mepContacts.filter(function(c){
-          if (c.StructureID === activeStructureId) return true;
-          var unit = c.UnitID && unitsById[c.UnitID];
-          return !!(unit && unit.StructureID === activeStructureId);
+          var inBuilding = c.StructureID === activeStructureId;
+          if (!inBuilding){
+            var unit = c.UnitID && unitsById[c.UnitID];
+            inBuilding = !!(unit && unit.StructureID === activeStructureId);
+          }
+          if (!inBuilding) return false;
+
+          // "Whose vendor" filter: with no client selected (god mode, all
+          // clients), everything in the building shows. With a client
+          // selected, only that client's own vendors and shared/unassigned
+          // ones show -- another client's vendor is excluded even though
+          // it's in the same building.
+          if (!activeClientId) return true;
+          return !c.ClientID || c.ClientID === activeClientId;
         });
 
         if (!scoped.length){
-          mepList.innerHTML = "<p>No vendor contacts on file for this building.</p>";
+          mepList.innerHTML = "<p>No vendor contacts on file" + (activeClientId ? " for this client in this building." : " for this building.") + "</p>";
           return;
         }
 
         scoped.forEach(function(c){
           var unit = c.UnitID && unitsById[c.UnitID];
           var scopeLabel = unit ? ("Unit " + (unit.UnitNumber || c.UnitID)) : "Building-wide";
+          var ownerLabel = c.ClientID ? clientNameFor(c.ClientID) : "Shared";
           var contactBits = [c.ContactName, c.Phone, c.Email].filter(Boolean).join(" · ");
 
           var item = document.createElement("div");
@@ -758,7 +788,7 @@
 
           var meta = document.createElement("div");
           meta.className = "mep-meta";
-          meta.textContent = scopeLabel + (contactBits ? " · " + contactBits : "");
+          meta.textContent = scopeLabel + " · " + ownerLabel + (contactBits ? " · " + contactBits : "");
 
           item.appendChild(top);
           item.appendChild(meta);
@@ -948,7 +978,7 @@
           return (a.ClientName || "").localeCompare(b.ClientName || "");
         });
 
-        [clientSelect, editUnitClient].forEach(function(select){
+        [clientSelect, editUnitClient, mepClient].forEach(function(select){
           var previousValue = select.value;
           while (select.options.length > 1){ select.remove(1); }
           sorted.forEach(function(attrs){
@@ -1426,6 +1456,7 @@
         var attrs = {
           StructureID: activeStructureId,
           UnitID: null,
+          ClientID: mepClient.value || null, // blank = shared/building-wide
           Trade: mepTrade.value || null,
           VendorName: mepVendorName.value || null,
           ContactName: mepContactName.value || null,
