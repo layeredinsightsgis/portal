@@ -116,10 +116,22 @@
   .wo-sev-high{background:#fdece0; color:#b3591b;}
   .wo-sev-medium{background:#fdf6d9; color:#8a6d00;}
   .wo-sev-low{background:#e7f0e9; color:#3f7a53;}
+  .wo-actions-row{display:flex; gap:6px; margin-top:6px;}
+  .wo-actions-row button{flex:1;}
+  .wo-edit-btn{font-size:11px; padding:6px 8px;}
   .wo-complete-btn{
-    margin-top:6px; width:100%; background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
+    background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
     font-size:11px; padding:6px 8px;
   }
+  .wo-edit-form label{font-size:11px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-faint); display:block; margin:8px 0 4px;}
+  .wo-edit-form label:first-child{margin-top:0;}
+  .wo-edit-form input, .wo-edit-form select, .wo-edit-form textarea{
+    width:100%; padding:7px 9px; border:1px solid var(--line); border-radius:6px; font-size:12.5px;
+    font-family:inherit; background:var(--surface); color:var(--ink); resize:vertical;
+  }
+  .wo-edit-form .mini-actions{display:flex; gap:8px; justify-content:flex-end; margin-top:8px;}
+  .wo-edit-form .mini-actions button{padding:6px 10px; font-size:12px;}
+  .wo-edit-form .mini-error{color:#b3413a; font-size:11px; min-height:14px; margin-top:4px;}
   .section-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;}
   .section-head h2{margin-bottom:0;}
   .add-btn{background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:4px 9px; font-size:11px; font-weight:600;}
@@ -735,9 +747,11 @@
       var activeFloorId = null;    // null = "All floors"
       var activeClientId = null;   // null = "All clients"
       var activeWoTab = "open";    // "open" or "closed"
+      var editingWorkOrderId = null; // OBJECTID of the work order currently showing its edit form, or null
 
       var WO_STATUS_LABELS = { REP: "Reported", WIP: "In Progress", HLD: "Holding for Parts", CMP: "Completed" };
       var WO_STATUS_CLASS = { REP: "wo-status-rep", WIP: "wo-status-wip", HLD: "wo-status-hld", CMP: "wo-status-cmp" };
+      var WO_STATUS_ORDER = ["REP", "WIP", "HLD", "CMP"];
       var WO_ISSUE_LABELS = {
         ELE: "Electrical", PLU: "Plumbing", HVAC: "Heating/Cooling", MINCON: "Minor Construction",
         MAJCON: "Major Construction", ACC: "Access Controls", FIRSYS: "Fire System", DORWIN: "Doors/Windows"
@@ -1017,6 +1031,141 @@
         return "";
       }
 
+      // Copies a static select's <option> list into a fresh <select>, so the
+      // per-item edit form offers exactly the same Issue Type/Severity
+      // choices as the Add Work Order form without duplicating those option
+      // lists in JS.
+      function cloneSelectOptions(sourceSelect){
+        var clone = document.createElement("select");
+        sourceSelect.querySelectorAll("option").forEach(function(o){
+          var opt = document.createElement("option");
+          opt.value = o.value;
+          opt.textContent = o.textContent;
+          clone.appendChild(opt);
+        });
+        return clone;
+      }
+
+      // Builds the inline edit form shown in place of a work order's normal
+      // display when it's the one currently being edited (editingWorkOrderId).
+      // Covers Issue Type, Severity, Status, Description, Reported By --
+      // not the attachment level/unit, which stays fixed once logged.
+      function buildWorkOrderEditForm(log){
+        var form = document.createElement("form");
+        form.className = "wo-edit-form";
+
+        function addField(labelText, el){
+          var label = document.createElement("label");
+          label.textContent = labelText;
+          form.appendChild(label);
+          form.appendChild(el);
+        }
+
+        var issueSelect = cloneSelectOptions(woIssueType);
+        issueSelect.value = log.IssueType || "";
+        addField("Issue Type", issueSelect);
+
+        var severitySelect = cloneSelectOptions(woSeverity);
+        severitySelect.value = log.Severity || "MEDIUM";
+        addField("Severity", severitySelect);
+
+        var statusSelect = document.createElement("select");
+        WO_STATUS_ORDER.forEach(function(code){
+          var opt = document.createElement("option");
+          opt.value = code;
+          opt.textContent = WO_STATUS_LABELS[code];
+          statusSelect.appendChild(opt);
+        });
+        statusSelect.value = log.Status || "REP";
+        addField("Status", statusSelect);
+
+        var descTextarea = document.createElement("textarea");
+        descTextarea.rows = 2;
+        descTextarea.value = log.Description || "";
+        addField("Description", descTextarea);
+
+        var reportedByInput = document.createElement("input");
+        reportedByInput.type = "text";
+        reportedByInput.value = log.ReportedBy || "";
+        addField("Reported By", reportedByInput);
+
+        var errorDiv = document.createElement("div");
+        errorDiv.className = "mini-error";
+        form.appendChild(errorDiv);
+
+        var actions = document.createElement("div");
+        actions.className = "mini-actions";
+        var cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.addEventListener("click", function(){
+          editingWorkOrderId = null;
+          renderWorkOrders();
+        });
+        var saveBtn = document.createElement("button");
+        saveBtn.type = "submit";
+        saveBtn.className = "primary";
+        saveBtn.textContent = "Save";
+        actions.appendChild(cancelBtn);
+        actions.appendChild(saveBtn);
+        form.appendChild(actions);
+
+        form.addEventListener("submit", function(e){
+          e.preventDefault();
+          errorDiv.textContent = "";
+          saveBtn.disabled = true;
+
+          var newStatus = statusSelect.value;
+          var updatedAttrs = {
+            OBJECTID: log.OBJECTID,
+            IssueType: issueSelect.value,
+            Severity: severitySelect.value,
+            Description: descTextarea.value || null,
+            ReportedBy: reportedByInput.value || null,
+            Status: newStatus
+          };
+          // Keep DateResolved consistent with Status, same as
+          // markWorkOrderCompleted -- stamp it on completion, clear it if
+          // an already-completed order gets reopened here.
+          if (newStatus === "CMP" && log.Status !== "CMP"){
+            updatedAttrs.DateResolved = Date.now();
+          } else if (newStatus !== "CMP" && log.Status === "CMP"){
+            updatedAttrs.DateResolved = null;
+          }
+
+          applyEdits(9, { updates: [{ attributes: updatedAttrs }] }).then(function(result){
+            if (result.error){
+              errorDiv.textContent = "ArcGIS error " + (result.error.code || "") + ": " + (result.error.message || JSON.stringify(result.error));
+              saveBtn.disabled = false;
+              return;
+            }
+            var updateResult = result.updateResults && result.updateResults[0];
+            if (!updateResult || !updateResult.success){
+              var msg = (updateResult && updateResult.error && (updateResult.error.description || updateResult.error.message))
+                || ("Unexpected response: " + JSON.stringify(result));
+              errorDiv.textContent = msg;
+              saveBtn.disabled = false;
+              return;
+            }
+
+            log.IssueType = updatedAttrs.IssueType;
+            log.Severity = updatedAttrs.Severity;
+            log.Description = updatedAttrs.Description;
+            log.ReportedBy = updatedAttrs.ReportedBy;
+            log.Status = updatedAttrs.Status;
+            if (updatedAttrs.hasOwnProperty("DateResolved")) log.DateResolved = updatedAttrs.DateResolved;
+
+            editingWorkOrderId = null;
+            renderWorkOrders();
+          }).catch(function(err){
+            errorDiv.textContent = "Could not reach the server: " + (err && err.message ? err.message : err);
+            saveBtn.disabled = false;
+          });
+        });
+
+        return form;
+      }
+
       function renderWorkOrders(){
         var isClosed = function(status){ return status === "CMP"; };
 
@@ -1060,11 +1209,18 @@
         }
 
         scoped.forEach(function(log){
-          var unitLabel = workOrderLocationLabel(log);
           var level = workOrderLevel(log);
 
           var item = document.createElement("div");
           item.className = "wo-item" + (level ? " wo-level-" + level : "");
+
+          if (log.OBJECTID === editingWorkOrderId){
+            item.appendChild(buildWorkOrderEditForm(log));
+            workOrderList.appendChild(item);
+            return;
+          }
+
+          var unitLabel = workOrderLocationLabel(log);
 
           var top = document.createElement("div");
           top.className = "wo-top";
@@ -1100,6 +1256,19 @@
           if (log.Description) item.appendChild(desc);
           item.appendChild(meta);
 
+          var actionsRow = document.createElement("div");
+          actionsRow.className = "wo-actions-row";
+
+          var editBtn = document.createElement("button");
+          editBtn.type = "button";
+          editBtn.className = "wo-edit-btn";
+          editBtn.textContent = "Edit";
+          editBtn.addEventListener("click", function(){
+            editingWorkOrderId = log.OBJECTID;
+            renderWorkOrders();
+          });
+          actionsRow.appendChild(editBtn);
+
           if (activeWoTab !== "closed"){
             var completeBtn = document.createElement("button");
             completeBtn.type = "button";
@@ -1108,8 +1277,10 @@
             completeBtn.addEventListener("click", function(){
               markWorkOrderCompleted(log, completeBtn);
             });
-            item.appendChild(completeBtn);
+            actionsRow.appendChild(completeBtn);
           }
+
+          item.appendChild(actionsRow);
 
           workOrderList.appendChild(item);
         });
