@@ -1332,7 +1332,7 @@
         }
 
         var attrs = {
-          UnitID: Number(unitId),
+          UnitID: unitId, // TEXT GUID field, like every other *ID in this schema -- never coerce to Number
           IssueType: woIssueType.value,
           Description: woDescription.value || null,
           ReportedBy: woReportedBy.value || null,
